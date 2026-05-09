@@ -1,0 +1,34 @@
+﻿symbol,company,sector
+KSE100,Market Index,Market
+HBL,Habib Bank Limited,Banking
+UBL,United Bank Limited,Banking
+MCB,MCB Bank Limited,Banking
+BAHL,Bank AL Habib Limited,Banking
+MEBL,Meezan Bank Limited,Banking
+NBP,National Bank of Pakistan,Banking
+OGDC,Oil and Gas Development Company,Oil & Gas
+PPL,Pakistan Petroleum Limited,Oil & Gas
+POL,Pakistan Oilfields Limited,Oil & Gas
+PSO,Pakistan State Oil,Oil & Gas
+SNGP,Sui Northern Gas Pipelines Limited,Oil & Gas
+SSGC,Sui Southern Gas Company Limited,Oil & Gas
+MARI,Mari Petroleum Company Limited,Oil & Gas
+LUCK,Lucky Cement,Cement
+DGKC,DG Khan Cement Company Limited,Cement
+MLCF,Maple Leaf Cement Factory Limited,Cement
+CHCC,Cherat Cement Company Limited,Cement
+FFC,Fauji Fertilizer Company Limited,Fertilizer
+FFBL,Fauji Fertilizer Bin Qasim Limited,Fertilizer
+EFERT,Engro Fertilizers Limited,Fertilizer
+ENGRO,Engro Corporation Limited,Fertilizer
+HUBC,Hub Power Company Limited,Power
+KEL,K-Electric Limited,Power
+KAPCO,Kot Addu Power Company Limited,Power
+SYS,Systems Limited,Technology
+TRG,TRG Pakistan Limited,Technology
+AIRLINK,Air Link Communication Limited,Technology
+PTC,Pakistan Telecommunication Company Limited,Telecom
+ILP,Interloop Limited,Textile
+UNITY,Unity Foods Limited,Food
+SEARL,The Searle Company Limited,Pharmaceutical
+GLAXO,GlaxoSmithKline Pakistan Limited,Pharmaceutical
