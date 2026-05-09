@@ -1,4 +1,2 @@
 [core]
-    remote = gdrive_remote
-['remote "gdrive_remote"']
-    url = gdrive://1xSVDLnRTGUJgWLi2PbmgEnI_OHVePeHO
+    remote = psxremote

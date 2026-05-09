@@ -21,3 +21,18 @@ python -m tests.test_spark_to_agents
 
 Decision output is academic decision support only. It is not financial advice
 and does not execute trades.
+
+## DVC data remote
+
+The project data is versioned with DVC and uses this Google Drive folder as the
+default remote:
+
+```powershell
+dvc remote list
+dvc status
+dvc push
+dvc pull
+```
+
+If Google Drive asks for authorization during `dvc push` or `dvc pull`, finish
+the browser login for the same Google account that owns the shared Drive folder.

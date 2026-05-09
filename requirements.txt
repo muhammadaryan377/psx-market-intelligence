@@ -1,27 +1,40 @@
-pandas
-numpy
+pandas>=2.2,<3
+numpy>=1.26,<3
+pyarrow>=16,<20
 
 # Kafka / Spark streaming
-kafka-python
-python-dotenv
-pyspark
+kafka-python>=2.0,<3
+python-dotenv>=1.0,<2
+pyspark>=4.0,<4.2
+psxdata==0.1.0a3
+
+# Agent workflow
+langgraph>=1.0,<2
+langchain>=1.0,<2
+
+# Data versioning
+dvc[gdrive]>=3.66,<4
 
 # RAG news collection and article extraction
-requests
-feedparser
-beautifulsoup4
-python-dateutil
-newspaper3k
-lxml_html_clean
-trafilatura
+requests>=2.31,<3
+feedparser>=6.0,<7
+beautifulsoup4>=4.12,<5
+python-dateutil>=2.9,<3
+newspaper3k>=0.2.8,<0.3
+lxml>=5,<7
+lxml_html_clean>=0.4,<1
+trafilatura>=2.0,<3
 
 # Vector embeddings and FAISS search
-sentence-transformers
-faiss-cpu
+sentence-transformers>=3.3,<4
+transformers>=4.46,<5
+huggingface-hub>=0.26,<1.0
+tokenizers>=0.20,<0.22
+safetensors>=0.4.5,<1
+faiss-cpu>=1.9,<2
 
 # Sentiment model
-transformers
-torch
+torch>=2.5,<3
 
 # Tests
-pytest
+pytest>=8,<10
