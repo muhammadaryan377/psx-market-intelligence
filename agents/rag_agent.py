@@ -106,6 +106,11 @@ class RAGAgent:
         sentiment_confidence = state.get("sentiment_confidence", 0.0)
 
         if not news_items:
+            state.setdefault("sentiment_label", "neutral")
+            state.setdefault("sentiment_score", 0.0)
+            state.setdefault("sentiment_confidence", 0.0)
+            state.setdefault("article_sentiments", [])
+
             market_data_bits = []
 
             if price is not None:

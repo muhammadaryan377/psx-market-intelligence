@@ -14,6 +14,7 @@ class PSXAgentState(TypedDict, total=False):
     price: float
     volume: int
     moving_average: float
+    confidence_hint: float
 
     # News Agent output
     retrieved_news: List[Dict[str, Any]]
@@ -30,6 +31,7 @@ class PSXAgentState(TypedDict, total=False):
     # Future Decision Agent output
     decision: str
     confidence: float
+    decision_reason: str
 
     # Debugging / explainability
     audit_log: List[Dict[str, Any]]
