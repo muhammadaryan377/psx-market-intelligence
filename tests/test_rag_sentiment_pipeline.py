@@ -23,9 +23,12 @@ def test_rag_sentiment_pipeline():
         print("-" * 80)
         print("Date:", item.get("published_date"))
         print("Symbol:", item.get("symbol"))
+        print("Sector:", item.get("sector"))
         print("Source:", item.get("source"))
+        print("Type:", item.get("news_type"))
+        print("Similarity Score:", item.get("similarity_score"))
+        print("Final Score:", item.get("final_score"))
         print("Title:", item.get("title"))
-        print("Score:", item.get("similarity_score"))
         print("Article Length:", len(str(item.get("article_text", ""))))
 
     sentiment_result = sentiment_service.analyze_news_list(news_items)
