@@ -1,11 +1,11 @@
 from pathlib import Path
+import hashlib
+
 import pandas as pd
 
+from config.app_config import NEWS_FILE
 
-NEWS_FILE = Path("data/psx_news.csv")
-
-
-REQUIRED_COLUMNS = [
+CANONICAL_COLUMNS = [
     "record_id",
     "published_date",
     "symbol",
@@ -21,7 +21,15 @@ REQUIRED_COLUMNS = [
     "news_type",
 ]
 
-BACKFILLABLE_COLUMNS = {"article_text", "publisher", "original_url"}
+COLUMN_ALIASES = {
+    "published_date": ["date", "published_at", "timestamp"],
+    "symbol": ["ticker", "stock", "stock_symbol"],
+    "title": ["headline", "heading"],
+    "summary": ["description", "snippet"],
+    "article_text": ["content", "body", "text", "news", "story"],
+    "source": ["source_name"],
+    "url": ["link"],
+}
 
 
 def clean_title(title: str, source: str = "") -> str:
@@ -48,19 +56,43 @@ def load_news(news_file: Path = NEWS_FILE) -> pd.DataFrame:
     try:
         df = pd.read_csv(news_file).fillna("")
     except pd.errors.EmptyDataError:
-        df = pd.DataFrame(columns=REQUIRED_COLUMNS)
+        df = pd.DataFrame(columns=CANONICAL_COLUMNS)
 
-    missing_cols = [col for col in REQUIRED_COLUMNS if col not in df.columns]
+    df.columns = [str(col).strip().lower().replace(" ", "_") for col in df.columns]
 
-    blocking_missing_cols = [
-        col for col in missing_cols if col not in BACKFILLABLE_COLUMNS
-    ]
+    for canonical, aliases in COLUMN_ALIASES.items():
+        if canonical in df.columns:
+            continue
 
-    if blocking_missing_cols:
-        raise ValueError(f"Missing columns in news file: {blocking_missing_cols}")
+        for alias in aliases:
+            if alias in df.columns:
+                df[canonical] = df[alias]
+                break
+
+    missing_cols = [col for col in CANONICAL_COLUMNS if col not in df.columns]
 
     for col in missing_cols:
         df[col] = ""
+
+    if df.empty:
+        df["document_text"] = ""
+        return df
+
+    if "record_id" not in df.columns or (df["record_id"].astype(str).str.strip() == "").any():
+        def make_record_id(row) -> str:
+            raw = "|".join(
+                [
+                    str(row.get("published_date", "")),
+                    str(row.get("symbol", "")),
+                    str(row.get("source", "")),
+                    str(row.get("url", "")),
+                    str(row.get("title", "")),
+                ]
+            )
+            return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+        empty_ids = df["record_id"].astype(str).str.strip() == ""
+        df.loc[empty_ids, "record_id"] = df[empty_ids].apply(make_record_id, axis=1)
 
     df["symbol"] = df["symbol"].astype(str).str.upper().str.strip()
     df["source"] = df["source"].astype(str).str.strip()

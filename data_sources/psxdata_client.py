@@ -1,7 +1,7 @@
-from pathlib import Path
 import pandas as pd
 import psxdata
 
+from config.app_config import ALL_TICKERS_FILE, HISTORICAL_DIR, SAMPLE_DATA_FILE
 
 START_DATE = "2016-05-09"
 END_DATE = "2026-05-09"
@@ -21,18 +21,18 @@ SYMBOLS = [
 
 
 def save_all_tickers():
-    Path("data").mkdir(parents=True, exist_ok=True)
+    ALL_TICKERS_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     tickers = psxdata.tickers(cache=False)
 
     df = pd.DataFrame({"symbol": tickers})
-    df.to_csv("data/all_tickers.csv", index=False)
+    df.to_csv(ALL_TICKERS_FILE, index=False)
 
     print(f"Saved total tickers: {len(df)}")
 
 
 def download_historical_data():
-    Path("data/historical").mkdir(parents=True, exist_ok=True)
+    HISTORICAL_DIR.mkdir(parents=True, exist_ok=True)
 
     all_data = []
 
@@ -53,7 +53,7 @@ def download_historical_data():
 
             df["symbol"] = symbol
 
-            file_path = f"data/historical/{symbol}.csv"
+            file_path = HISTORICAL_DIR / f"{symbol}.csv"
             df.to_csv(file_path, index=False)
 
             all_data.append(df)
@@ -69,9 +69,9 @@ def download_historical_data():
 
     final_df = pd.concat(all_data, ignore_index=True)
 
-    final_df.to_csv("data/sample_psx_data.csv", index=False)
+    final_df.to_csv(SAMPLE_DATA_FILE, index=False)
 
-    print("Final merged dataset saved: data/sample_psx_data.csv")
+    print(f"Final merged dataset saved: {SAMPLE_DATA_FILE}")
     print("Shape:", final_df.shape)
     print("Columns:", final_df.columns.tolist())
 

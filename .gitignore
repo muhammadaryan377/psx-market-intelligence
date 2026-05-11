@@ -220,3 +220,13 @@ __marimo__/
 # Project local runtime assets
 .hadoop/
 docs/report_assets/
+
+# PSX runtime outputs
+data/checkpoints/
+data/tmp/
+data/logs/
+data/processed/psx_trends/*.crc
+data/processed/psx_trends/.*.crc
+data/processed/psx_trends/_temporary/
+data/processed/psx_trends/**/_temporary/
+.dvc/cache/

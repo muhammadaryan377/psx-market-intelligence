@@ -1,94 +1,146 @@
-from typing import Dict, List, Any
-from transformers import pipeline
+from typing import Any, Dict
 
 
-MODEL_NAME = "ProsusAI/finbert"
+POSITIVE_WORDS = {
+    "gain",
+    "gains",
+    "growth",
+    "improve",
+    "improved",
+    "positive",
+    "profit",
+    "profits",
+    "rally",
+    "record",
+    "recover",
+    "recovery",
+    "rise",
+    "rises",
+    "strong",
+    "surge",
+    "up",
+}
+
+NEGATIVE_WORDS = {
+    "decline",
+    "declines",
+    "down",
+    "drop",
+    "fall",
+    "falls",
+    "loss",
+    "losses",
+    "negative",
+    "pressure",
+    "risk",
+    "sell",
+    "selling",
+    "slump",
+    "uncertain",
+    "uncertainty",
+    "weak",
+}
 
 
-class FinBERTSentimentModel:
-    """
-    FinBERT financial sentiment model.
-    Output labels:
-    positive, negative, neutral
-    """
+def _label_from_score(score: float) -> str:
+    if score > 0.05:
+        return "Positive"
+    if score < -0.05:
+        return "Negative"
+    return "Neutral"
+
+
+class SimpleSentimentModel:
+    """Week 2 sentiment baseline with optional VADER/TextBlob backends."""
 
     def __init__(self):
-        print("Loading FinBERT sentiment model...")
-        self.classifier = pipeline(
-            task="text-classification",
-            model=MODEL_NAME,
-            tokenizer=MODEL_NAME,
-            top_k=None,
-            device=-1,  # CPU. If GPU available, use device=0
-        )
+        self.backend = "rule_based"
+        self._vader = None
 
-    def _normalize_scores(self, raw_output: Any) -> List[Dict[str, float]]:
-        """
-        Handles different transformers output formats.
-        """
-        if isinstance(raw_output, list) and raw_output and isinstance(raw_output[0], list):
-            raw_output = raw_output[0]
+        try:
+            from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-        normalized = []
+            self._vader = SentimentIntensityAnalyzer()
+            self.backend = "vader"
+        except Exception:
+            self._vader = None
 
-        for item in raw_output:
-            label = str(item.get("label", "")).lower()
-            score = float(item.get("score", 0.0))
+        if self._vader is None:
+            try:
+                from textblob import TextBlob  # noqa: F401
 
-            normalized.append({
-                "label": label,
-                "score": score
-            })
+                self.backend = "textblob"
+            except Exception:
+                self.backend = "rule_based"
 
-        return normalized
+    def _analyze_with_vader(self, text: str) -> Dict[str, Any]:
+        scores = self._vader.polarity_scores(text)
+        score = round(float(scores.get("compound", 0.0)), 4)
+        return {
+            "label": _label_from_score(score),
+            "score": score,
+            "confidence": round(abs(score), 4),
+            "raw_scores": scores,
+            "backend": self.backend,
+        }
+
+    def _analyze_with_textblob(self, text: str) -> Dict[str, Any]:
+        from textblob import TextBlob
+
+        score = round(float(TextBlob(text).sentiment.polarity), 4)
+        return {
+            "label": _label_from_score(score),
+            "score": score,
+            "confidence": round(abs(score), 4),
+            "raw_scores": {"polarity": score},
+            "backend": self.backend,
+        }
+
+    def _analyze_with_rules(self, text: str) -> Dict[str, Any]:
+        tokens = [
+            token.strip(".,;:!?()[]{}'\"").lower()
+            for token in text.split()
+        ]
+        positive_count = sum(1 for token in tokens if token in POSITIVE_WORDS)
+        negative_count = sum(1 for token in tokens if token in NEGATIVE_WORDS)
+        total = positive_count + negative_count
+
+        if total == 0:
+            score = 0.0
+        else:
+            score = (positive_count - negative_count) / total
+
+        score = round(max(-1.0, min(1.0, score)), 4)
+        return {
+            "label": _label_from_score(score),
+            "score": score,
+            "confidence": round(abs(score), 4),
+            "raw_scores": {
+                "positive_terms": positive_count,
+                "negative_terms": negative_count,
+            },
+            "backend": self.backend,
+        }
 
     def analyze_text(self, text: str) -> Dict[str, Any]:
-        if not text or not text.strip():
+        text = str(text or "").strip()
+        if not text:
             return {
-                "label": "neutral",
+                "label": "Neutral",
                 "score": 0.0,
                 "confidence": 0.0,
-                "raw_scores": []
+                "raw_scores": {},
+                "backend": self.backend,
             }
 
-        # FinBERT/BERT max input limit hoti hai, is liye text trim kar rahe hain.
-        text = text.strip()
-        text = text[:3000]
+        if self._vader is not None:
+            return self._analyze_with_vader(text)
 
-        raw_output = self.classifier(
-            text,
-            truncation=True,
-            max_length=512
-        )
+        if self.backend == "textblob":
+            return self._analyze_with_textblob(text)
 
-        scores = self._normalize_scores(raw_output)
+        return self._analyze_with_rules(text)
 
-        if not scores:
-            return {
-                "label": "neutral",
-                "score": 0.0,
-                "confidence": 0.0,
-                "raw_scores": []
-            }
 
-        best = max(scores, key=lambda x: x["score"])
-        label = best["label"]
-        confidence = round(best["score"], 4)
-
-        # Signed score:
-        # positive = +confidence
-        # negative = -confidence
-        # neutral = 0
-        if label == "positive":
-            signed_score = confidence
-        elif label == "negative":
-            signed_score = -confidence
-        else:
-            signed_score = 0.0
-
-        return {
-            "label": label,
-            "score": signed_score,
-            "confidence": confidence,
-            "raw_scores": scores
-        }
+# Backward-compatible name for existing agent imports.
+FinBERTSentimentModel = SimpleSentimentModel

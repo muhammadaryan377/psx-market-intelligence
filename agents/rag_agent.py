@@ -131,7 +131,7 @@ class RAGAgent:
                 "News Context\n"
                 "No high-quality relevant news was retrieved for the event window.",
                 "Sentiment Impact\n"
-                "No news sentiment was available, so FinBERT impact could not be applied.",
+                "No news sentiment was available, so sentiment impact could not be applied.",
                 "Final Explanation\n"
                 "The movement should be treated as price/volume driven until stronger company, sector, or market news is available.",
             ])
@@ -193,7 +193,7 @@ class RAGAgent:
             "News Context\n"
             f"{self._build_news_context(news_items, symbol)}",
             "Sentiment Impact\n"
-            f"Aggregate FinBERT sentiment is {sentiment_label} "
+            f"Aggregate news sentiment is {sentiment_label} "
             f"(score={sentiment_score}, confidence={sentiment_confidence}).",
             "Final Explanation\n"
             f"{final_reason}",

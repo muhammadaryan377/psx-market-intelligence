@@ -7,7 +7,6 @@ from pyspark.sql.functions import (
     when,
     lit,
     round,
-    abs as spark_abs,
     coalesce
 )
 
@@ -22,9 +21,11 @@ def add_trend_signals(
     Adds moving average, price change, trend, and event type.
 
     Trend rules:
-    close > moving_average  => UP
-    close < moving_average  => DOWN
-    close near MA           => STABLE
+    1. Prefer previous close when it exists.
+    2. Fall back to the rolling moving average for the first row in a symbol.
+    3. If close is above reference by stable_threshold, trend is UP.
+       If close is below reference by stable_threshold, trend is DOWN.
+       Otherwise, trend is STABLE.
     """
 
     price_window = (
@@ -93,13 +94,24 @@ def add_trend_signals(
     )
 
     df = df.withColumn(
-        "trend",
+        "trend_reference_price",
+        coalesce(col("previous_close"), col("moving_average"), col("close"))
+    )
+
+    # Signed ratio used for explainable trend classification.
+    # Example: 0.006 means close is 0.6% above previous close / moving average.
+    df = df.withColumn(
+        "trend_reference_change",
         when(
-            spark_abs((col("close") - col("moving_average")) / col("moving_average")) <= stable_threshold,
-            lit("STABLE")
-        )
-        .when(col("close") > col("moving_average"), lit("UP"))
-        .when(col("close") < col("moving_average"), lit("DOWN"))
+            col("trend_reference_price") > 0,
+            (col("close") - col("trend_reference_price")) / col("trend_reference_price")
+        ).otherwise(lit(0.0))
+    )
+
+    df = df.withColumn(
+        "trend",
+        when(col("trend_reference_change") >= lit(stable_threshold), lit("UP"))
+        .when(col("trend_reference_change") <= lit(-stable_threshold), lit("DOWN"))
         .otherwise(lit("STABLE"))
     )
 

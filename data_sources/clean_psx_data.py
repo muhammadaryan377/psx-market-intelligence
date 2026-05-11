@@ -1,9 +1,10 @@
-from pathlib import Path
 import pandas as pd
 
+from config.app_config import CLEANED_DATA_FILE, SAMPLE_DATA_FILE
 
-RAW_FILE = Path("data/sample_psx_data.csv")
-CLEAN_FILE = Path("data/processed/psx_cleaned_data.csv")
+
+RAW_FILE = SAMPLE_DATA_FILE
+CLEAN_FILE = CLEANED_DATA_FILE
 
 
 def clean_psx_data():

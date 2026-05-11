@@ -1,40 +1,35 @@
 pandas>=2.2,<3
 numpy>=1.26,<3
-pyarrow>=16,<20
+python-dotenv>=1.0,<2
 
 # Kafka / Spark streaming
 kafka-python>=2.0,<3
-python-dotenv>=1.0,<2
 pyspark>=4.0,<4.2
+
+# Week 2 app and tests
+flask>=3.0,<4
+pytest>=8,<10
+
+# PSX historical data collection
 psxdata==0.1.0a3
 
-# Agent workflow
-langgraph>=1.0,<2
-langchain>=1.0,<2
+# RAG fallback retrieval
+scikit-learn>=1.4,<2
 
-# Data versioning
-dvc[gdrive]>=3.66,<4
+# Optional RAG/vector extras:
+# sentence-transformers>=3.3,<4
+# faiss-cpu>=1.9,<2
+# chromadb>=0.5,<1
 
-# RAG news collection and article extraction
-requests>=2.31,<3
-feedparser>=6.0,<7
-beautifulsoup4>=4.12,<5
-python-dateutil>=2.9,<3
-newspaper3k>=0.2.8,<0.3
-lxml>=5,<7
-lxml_html_clean>=0.4,<1
-trafilatura>=2.0,<3
+# Optional sentiment extras:
+# vaderSentiment>=3.3,<4
+# textblob>=0.18,<1
 
-# Vector embeddings and FAISS search
-sentence-transformers>=3.3,<4
-transformers>=4.46,<5
-huggingface-hub>=0.26,<1.0
-tokenizers>=0.20,<0.22
-safetensors>=0.4.5,<1
-faiss-cpu>=1.9,<2
-
-# Sentiment model
-torch>=2.5,<3
-
-# Tests
-pytest>=8,<10
+# Optional data/versioning and news collection extras:
+# dvc[gdrive]>=3.66,<4
+# requests>=2.31,<3
+# feedparser>=6.0,<7
+# beautifulsoup4>=4.12,<5
+# python-dateutil>=2.9,<3
+# newspaper3k>=0.2.8,<0.3
+# trafilatura>=2.0,<3

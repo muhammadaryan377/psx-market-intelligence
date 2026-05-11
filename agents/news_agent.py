@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from agents.state import PSXAgentState
 from rag_layer.retriever import RAGRetriever
@@ -13,7 +14,14 @@ class NewsAgent:
     """
 
     def __init__(self):
-        self.retriever = RAGRetriever()
+        self._retriever: Optional[RAGRetriever] = None
+
+    @property
+    def retriever(self) -> RAGRetriever:
+        if self._retriever is None:
+            self._retriever = RAGRetriever()
+
+        return self._retriever
 
     def run(self, state: PSXAgentState) -> PSXAgentState:
         if "audit_log" not in state:
@@ -38,15 +46,30 @@ class NewsAgent:
 
             return state
 
-        news_items = self.retriever.retrieve(
-            symbol=symbol,
-            event_date=event_date,
-            event_type=event_type,
-            trend=trend,
-            sector=sector,
-            top_k=5,
-            lookback_days=7,
-        )
+        try:
+            news_items = self.retriever.retrieve(
+                symbol=symbol,
+                event_date=event_date,
+                event_type=event_type,
+                trend=trend,
+                sector=sector,
+                top_k=5,
+                lookback_days=7,
+            )
+        except Exception as exc:
+            news_items = []
+            state["error_message"] = f"News retrieval failed: {exc}"
+
+            state["audit_log"].append({
+                "agent": "NewsAgent",
+                "status": "failed",
+                "reason": "news_retrieval_error",
+                "error": str(exc),
+                "timestamp": datetime.now().isoformat(),
+            })
+
+            state["retrieved_news"] = news_items
+            return state
 
         state["retrieved_news"] = news_items
 
@@ -62,8 +85,13 @@ class NewsAgent:
         return state
 
 
-news_agent_instance = NewsAgent()
+news_agent_instance: Optional[NewsAgent] = None
 
 
 def news_agent_node(state: PSXAgentState) -> PSXAgentState:
+    global news_agent_instance
+
+    if news_agent_instance is None:
+        news_agent_instance = NewsAgent()
+
     return news_agent_instance.run(state)

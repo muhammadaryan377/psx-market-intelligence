@@ -1,9 +1,12 @@
 from pathlib import Path
+
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, lit, current_timestamp
 
+from config.app_config import TREND_OUTPUT_DIR
 
-DEFAULT_OUTPUT_DIR = "data/processed/psx_trends"
+
+DEFAULT_OUTPUT_DIR = str(TREND_OUTPUT_DIR)
 
 
 FINAL_COLUMNS = [
@@ -20,6 +23,8 @@ FINAL_COLUMNS = [
     "price_change",
     "price_change_pct",
     "ma_difference_pct",
+    "trend_reference_price",
+    "trend_reference_change",
     "avg_volume",
     "trend",
     "event_type",
@@ -72,6 +77,7 @@ def write_processed_batch(
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     output_df = select_output_columns(batch_df)
+    output_df = output_df.dropDuplicates(["symbol", "date", "event_type", "trend"])
 
     output_df = output_df.withColumn("batch_id", lit(int(batch_id)))
     output_df = output_df.withColumn("processed_at", current_timestamp())

@@ -4,10 +4,10 @@ from pyspark.sql.functions import (
     lit,
     trim,
     upper,
-    to_timestamp,
     to_date,
     when,
-    coalesce
+    coalesce,
+    expr
 )
 from pyspark.sql.types import DoubleType, LongType, BooleanType
 
@@ -16,7 +16,7 @@ def normalize_stock_schema(df: DataFrame) -> DataFrame:
     """
     Normalize incoming stock data schema.
     Expected input columns:
-    symbol, date, open, high, low, close, volume, is_anomaly
+    symbol, date or timestamp, open, high, low, close, volume, is_anomaly
     """
 
     # Normalize column names
@@ -29,6 +29,12 @@ def normalize_stock_schema(df: DataFrame) -> DataFrame:
     if "is_anomaly" not in df.columns:
         df = df.withColumn("is_anomaly", lit(False))
 
+    if "date" not in df.columns:
+        df = df.withColumn("date", lit(None).cast("string"))
+
+    if "timestamp" not in df.columns:
+        df = df.withColumn("timestamp", lit(None).cast("string"))
+
     if "source" not in df.columns:
         df = df.withColumn("source", lit("psxdata"))
 
@@ -37,7 +43,13 @@ def normalize_stock_schema(df: DataFrame) -> DataFrame:
 
     # Cast columns
     df = df.withColumn("symbol", upper(trim(col("symbol").cast("string"))))
-    df = df.withColumn("event_time", to_timestamp(col("date").cast("string")))
+    df = df.withColumn(
+        "event_time",
+        coalesce(
+            expr("try_to_timestamp(CAST(`timestamp` AS STRING))"),
+            expr("try_to_timestamp(CAST(`date` AS STRING))"),
+        )
+    )
     df = df.withColumn("date", to_date(col("event_time")))
 
     df = df.withColumn("open", col("open").cast(DoubleType()))
@@ -71,6 +83,7 @@ def clean_stock_batch(df: DataFrame) -> DataFrame:
             "volume"
         ]
     )
+    df = df.filter(col("symbol") != "")
 
     # Basic valid price checks
     df = df.filter(
@@ -126,6 +139,7 @@ def clean_stock_stream(df: DataFrame) -> DataFrame:
             "volume"
         ]
     )
+    df = df.filter(col("symbol") != "")
 
     df = df.filter(
         (col("open") > 0) &

@@ -1,49 +1,31 @@
-from langgraph.graph import END, START, StateGraph
+from copy import deepcopy
 
-from agents.state import PSXAgentState
-from agents.news_agent import news_agent_node
-from agents.sentiment_agent import sentiment_agent_node
-from agents.rag_agent import rag_agent_node
 from agents.decision_agent import decision_agent_node
+from agents.news_agent import news_agent_node
+from agents.rag_agent import rag_agent_node
+from agents.sentiment_agent import sentiment_agent_node
+from agents.state import PSXAgentState
 
 
-def route_after_news(state: PSXAgentState) -> str:
+class SimplePSXGraph:
     """
-    Agar news mil jaye to sentiment agent chalega.
-    Agar news na mile to direct RAG Agent fallback explanation banayega.
+    Week 2 sequential adapter.
+
+    TODO Week 3: replace this with the final LangGraph workflow once the
+    streaming, RAG, and sentiment baselines are stable.
     """
-    retrieved_news = state.get("retrieved_news", [])
 
-    if retrieved_news:
-        return "sentiment_agent"
+    def invoke(self, state: PSXAgentState) -> PSXAgentState:
+        current_state: PSXAgentState = deepcopy(state)
+        current_state = news_agent_node(current_state)
+        current_state = sentiment_agent_node(current_state)
+        current_state = rag_agent_node(current_state)
+        current_state = decision_agent_node(current_state)
+        return current_state
 
-    return "rag_agent"
 
-
-def build_psx_graph():
-    graph = StateGraph(PSXAgentState)
-
-    graph.add_node("news_agent", news_agent_node)
-    graph.add_node("sentiment_agent", sentiment_agent_node)
-    graph.add_node("rag_agent", rag_agent_node)
-    graph.add_node("decision_agent", decision_agent_node)
-
-    graph.add_edge(START, "news_agent")
-
-    graph.add_conditional_edges(
-        "news_agent",
-        route_after_news,
-        {
-            "sentiment_agent": "sentiment_agent",
-            "rag_agent": "rag_agent",
-        },
-    )
-
-    graph.add_edge("sentiment_agent", "rag_agent")
-    graph.add_edge("rag_agent", "decision_agent")
-    graph.add_edge("decision_agent", END)
-
-    return graph.compile()
+def build_psx_graph() -> SimplePSXGraph:
+    return SimplePSXGraph()
 
 
 psx_graph = build_psx_graph()
@@ -63,21 +45,10 @@ if __name__ == "__main__":
     }
 
     final_state = psx_graph.invoke(input_state)
-
-    print("\n================ LANGGRAPH FINAL OUTPUT ================")
+    print("\n================ AGENT BASELINE OUTPUT ================")
     print("Symbol:", final_state.get("symbol"))
-    print("Company:", final_state.get("company"))
     print("Trend:", final_state.get("trend"))
     print("News Count:", len(final_state.get("retrieved_news", [])))
     print("Sentiment Label:", final_state.get("sentiment_label"))
-    print("Sentiment Score:", final_state.get("sentiment_score"))
     print("Decision:", final_state.get("decision"))
-    print("Confidence:", final_state.get("confidence"))
     print("Decision Reason:", final_state.get("decision_reason"))
-
-    print("\n================ RAG EXPLANATION ================")
-    print(final_state.get("rag_explanation"))
-
-    print("\n================ AUDIT LOG ================")
-    for log in final_state.get("audit_log", []):
-        print(log)

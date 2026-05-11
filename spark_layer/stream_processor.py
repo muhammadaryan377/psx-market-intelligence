@@ -51,7 +51,14 @@ from pyspark.sql.types import (
     BooleanType,
 )
 
-from config.kafka_config import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC
+from config.app_config import (
+    DATA_DIR,
+    KAFKA_BOOTSTRAP_SERVERS,
+    KAFKA_TOPIC,
+    SPARK_APP_NAME,
+    SPARK_CHECKPOINT_LOCATION,
+    TREND_OUTPUT_DIR,
+)
 
 from spark_layer.cleaning import clean_stock_batch
 from spark_layer.trend_detection import add_trend_signals
@@ -72,7 +79,7 @@ MANUAL_KAFKA_GROUP_ID = os.getenv(
     "MANUAL_KAFKA_GROUP_ID",
     "psx-spark-stream-processor",
 )
-MANUAL_KAFKA_TEMP_DIR = PROJECT_ROOT / "data" / "tmp" / "manual_kafka_batches"
+MANUAL_KAFKA_TEMP_DIR = DATA_DIR / "tmp" / "manual_kafka_batches"
 
 KAFKA_CONNECTOR_JAR_NAMES = [
     "com.google.code.findbugs_jsr305-3.0.0.jar",
@@ -94,6 +101,7 @@ TICK_SCHEMA = (
     StructType()
     .add("symbol", StringType())
     .add("date", StringType())
+    .add("timestamp", StringType())
     .add("open", DoubleType())
     .add("high", DoubleType())
     .add("low", DoubleType())
@@ -121,7 +129,7 @@ def create_spark_session():
 
     builder = (
         SparkSession.builder
-        .appName("PSX Kafka Stream Processor")
+        .appName(SPARK_APP_NAME)
         .config(
             "spark.hadoop.hadoop.security.group.mapping",
             "org.apache.hadoop.security.ShellBasedUnixGroupsMapping",
@@ -224,7 +232,7 @@ def process_batch(batch_df, batch_id):
         write_processed_batch(
             batch_df=trend_df,
             batch_id=batch_id,
-            output_dir="data/processed/psx_trends",
+            output_dir=str(TREND_OUTPUT_DIR),
             output_format="json",
             show_console=True,
         )
@@ -243,15 +251,11 @@ def process_batch(batch_df, batch_id):
 
 
 def start_stream(parsed_df):
-    checkpoint_path = str(
-        PROJECT_ROOT / "data" / "checkpoints" / "psx_stream_processor"
-    )
-
     return (
         parsed_df.writeStream
         .foreachBatch(process_batch)
         .outputMode("append")
-        .option("checkpointLocation", checkpoint_path)
+        .option("checkpointLocation", str(SPARK_CHECKPOINT_LOCATION))
         .start()
     )
 
@@ -372,6 +376,9 @@ def main():
     print(f"Spark Version: {SPARK_VERSION}")
     print(f"Kafka Bootstrap Servers: {KAFKA_BOOTSTRAP_SERVERS}")
     print(f"Kafka Topic: {KAFKA_TOPIC}")
+    print(f"Spark App Name: {SPARK_APP_NAME}")
+    print(f"Checkpoint: {SPARK_CHECKPOINT_LOCATION}")
+    print(f"Trend Output: {TREND_OUTPUT_DIR}")
     print("=" * 60)
 
     if should_use_manual_kafka_consumer():

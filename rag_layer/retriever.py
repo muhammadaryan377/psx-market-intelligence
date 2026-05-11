@@ -1,3 +1,4 @@
+import argparse
 from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -7,10 +8,17 @@ from rag_layer.vector_store import NewsVectorStore
 
 class RAGRetriever:
     def __init__(self):
-        self.vector_store = NewsVectorStore()
+        self._vector_store: Optional[NewsVectorStore] = None
+
+    @property
+    def vector_store(self) -> NewsVectorStore:
+        if self._vector_store is None:
+            self._vector_store = NewsVectorStore()
+
+        return self._vector_store
 
     def _date_window(self, event_date: str, lookback_days: int = 7):
-        end_date = datetime.fromisoformat(event_date).date()
+        end_date = datetime.fromisoformat(str(event_date)[:10]).date()
         start_date = end_date - timedelta(days=lookback_days)
 
         return start_date.isoformat(), end_date.isoformat()
@@ -88,6 +96,13 @@ class RAGRetriever:
     ) -> List[Dict[str, Any]]:
 
         start_date, end_date = self._date_window(event_date, lookback_days)
+
+        try:
+            vector_store = self.vector_store
+        except Exception as exc:
+            print(f"RAG retriever unavailable: {exc}")
+            return []
+
         company = company or self._company_for_symbol(symbol)
 
         query = f"""
@@ -105,7 +120,7 @@ class RAGRetriever:
         seen_keys = set()
 
         # 1. Same symbol news with strict quality filters.
-        same_symbol_results = self.vector_store.search(
+        same_symbol_results = vector_store.search(
             query=query,
             top_k=top_k,
             symbol=symbol,
@@ -129,7 +144,7 @@ class RAGRetriever:
 
         # 2. Same sector fallback
         if sector:
-            same_sector_results = self.vector_store.search(
+            same_sector_results = vector_store.search(
                 query=query,
                 top_k=top_k,
                 sector=sector,
@@ -151,7 +166,7 @@ class RAGRetriever:
                 return collected
 
         # 3. Market-wide fallback
-        kse100_results = self.vector_store.search(
+        kse100_results = vector_store.search(
             query=query,
             top_k=top_k,
             symbol="KSE100",
@@ -172,7 +187,7 @@ class RAGRetriever:
         if len(collected) >= top_k:
             return collected
 
-        market_news_results = self.vector_store.search(
+        market_news_results = vector_store.search(
             query=query,
             top_k=top_k,
             company=company,
@@ -196,7 +211,7 @@ class RAGRetriever:
         # 4. Wider fallback, 30 days
         wide_start_date, wide_end_date = self._date_window(event_date, 30)
 
-        wide_symbol_results = self.vector_store.search(
+        wide_symbol_results = vector_store.search(
             query=query,
             top_k=top_k,
             symbol=symbol,
@@ -219,7 +234,7 @@ class RAGRetriever:
             return collected
 
         if sector:
-            wide_sector_results = self.vector_store.search(
+            wide_sector_results = vector_store.search(
                 query=query,
                 top_k=top_k,
                 sector=sector,
@@ -240,7 +255,7 @@ class RAGRetriever:
             if len(collected) >= top_k:
                 return collected
 
-        wide_market_results = self.vector_store.search(
+        wide_market_results = vector_store.search(
             query=query,
             top_k=top_k,
             company=company,
@@ -259,19 +274,27 @@ class RAGRetriever:
 
         return collected
 
+    def query(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+        try:
+            return self.vector_store.search(query=query, top_k=top_k)
+        except Exception as exc:
+            print(f"RAG query failed: {exc}")
+            return []
+
 
 if __name__ == "__main__":
-    retriever = RAGRetriever()
-
-    results = retriever.retrieve(
-        symbol="HBL",
-        event_date="2026-05-08",
-        event_type="price_down",
-        trend="DOWN",
-        sector="Banking",
-        top_k=5,
-        lookback_days=7,
+    parser = argparse.ArgumentParser(description="Test the PSX RAG retriever")
+    parser.add_argument(
+        "query",
+        nargs="?",
+        default="HBL price down reason",
+        help="Free-text news query",
     )
+    parser.add_argument("--top-k", type=int, default=5)
+    args = parser.parse_args()
+
+    retriever = RAGRetriever()
+    results = retriever.query(args.query, top_k=args.top_k)
 
     print("\nRetrieved News:")
     for item in results:
