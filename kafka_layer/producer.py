@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +10,11 @@ from typing import Iterable, Optional
 import pandas as pd
 from kafka import KafkaProducer
 from kafka.errors import KafkaError, NoBrokersAvailable
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.app_config import (
     CLEANED_DATA_FILE,

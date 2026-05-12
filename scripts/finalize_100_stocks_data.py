@@ -1,10 +1,17 @@
 from datetime import datetime
+from pathlib import Path
+import sys
 import time
 import traceback
 import re
 
 import pandas as pd
 import psxdata
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.app_config import DATA_DIR, LOG_DIR, METADATA_DIR, PROCESSED_DIR, RAW_PRICE_DIR
 

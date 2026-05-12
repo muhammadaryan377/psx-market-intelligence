@@ -1,5 +1,13 @@
+from pathlib import Path
+import sys
+
 from kafka.admin import KafkaAdminClient, NewTopic
 from kafka.errors import NoBrokersAvailable, TopicAlreadyExistsError
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.app_config import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC
 

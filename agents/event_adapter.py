@@ -2,12 +2,16 @@ import csv
 import os
 from datetime import date, datetime
 from pathlib import Path
+import sys
 from typing import Any, Dict, Mapping
-
-from agents.state import PSXAgentState
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from agents.state import PSXAgentState
+
 SYMBOLS_FILE = PROJECT_ROOT / "data" / "symbols_seed.csv"
 
 
