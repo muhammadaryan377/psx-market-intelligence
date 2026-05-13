@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  psx-app:
+    build: .
+    ports:
+      - "5678:5678"  # Debug port
+    environment:
+      - PYTHONUNBUFFERED=1
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    command: python -m debugpy --wait-for-client --listen 0.0.0.0:5678 run_spark_stream.py
+    depends_on:
+      - kafka
+      - zookeeper
+    volumes:
+      - ./:/app
+    networks:
+      - psx-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - psx-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    networks:
+      - psx-network
+
+networks:
+  psx-network:
+    driver: bridge

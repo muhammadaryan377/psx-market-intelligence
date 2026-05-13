@@ -1,0 +1,6 @@
+services:
+  psxmarketintelligence:
+    image: psxmarketintelligence
+    build:
+      context: .
+      dockerfile: ./Dockerfile
