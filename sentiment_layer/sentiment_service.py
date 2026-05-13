@@ -67,8 +67,7 @@ class SentimentService:
         )
 
         return {
-            "label": _aggregate_label(avg_score),
-            "score": avg_score,
+           
             "sentiment_label": _aggregate_label(avg_score),
             "sentiment_score": avg_score,
             "sentiment_confidence": avg_confidence,
