@@ -7,6 +7,8 @@ from typing import Dict, Any, Optional, List
 from kafka import KafkaConsumer, KafkaProducer
 import sys
 
+
+
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
