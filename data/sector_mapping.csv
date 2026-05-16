@@ -1,0 +1,21 @@
+symbol,company,sector,sub_sector
+UBL,United Bank Limited,Banking,Commercial
+MCB,MCB Bank,Banking,Commercial
+HBL,Habib Bank Limited,Banking,Commercial
+SYS,Systems Limited,Technology,IT Services
+ENGRO,Engro Corporation,Fertilizer,Chemicals
+LUCK,Lucky Cement,Cement,Construction
+HUBC,Hub Power Company,Energy,Power Generation
+FCCL,Fauji Cement,Cement,Construction
+NRL,National Refinery,Oil & Gas,Refinery
+POL,Pakistan Oilfields,Oil & Gas,Exploration
+PSO,Pakistan State Oil,Oil & Gas,Marketing
+OGDC,Oil & Gas Development,Oil & Gas,Exploration
+MARI,Mari Petroleum,Oil & Gas,Exploration
+EFERT,Engro Fertilizers,Fertilizer,Production
+NBP,National Bank,Banking,Government
+DAWH,Dawn,Media,Publishing
+INDU,Indus Motor,Automobile,Manufacturing
+SEARL,Searle,Pharma,Healthcare
+FFC,Fauji Fertilizer,Fertilizer,Production
+KTML,Kot Addu Power,Energy,Power Generation

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PSX Market Intelligence | Trading Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <i class="fas fa-chart-line"></i>
+                <span>PSX<span class="highlight">Intel</span></span>
+            </div>
+            <nav>
+                <a href="#" class="nav-link active" data-page="dashboard">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#" class="nav-link" data-page="search">
+                    <i class="fas fa-search"></i>
+                    <span>Search Stock</span>
+                </a>
+                <a href="#" class="nav-link" data-page="predict">
+                    <i class="fas fa-chart-line"></i>
+                    <span>ML Predict</span>
+                </a>
+                <a href="#" class="nav-link" data-page="news">
+                    <i class="fas fa-newspaper"></i>
+                    <span>News</span>
+                </a>
+            </nav>
+            <div class="market-status">
+                <div class="status-dot" id="marketDot"></div>
+                <div>
+                    <span id="marketStatus">Checking...</span>
+                    <small id="marketTime"></small>
+                </div>
+            </div>
+            <div class="data-source-badge" id="dataSourceBadge">
+                <i class="fas fa-database"></i>
+                <span id="dataSourceText">Loading...</span>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main">
+            <div class="top-bar">
+                <div>
+                    <h1 id="pageTitle">Dashboard</h1>
+                    <p id="pageSubtitle">Live market overview</p>
+                </div>
+                <div class="live-badge">
+                    <span class="live-dot"></span>
+                    <span>LIVE</span>
+                </div>
+            </div>
+
+            <!-- Market Status Banner -->
+            <div class="market-banner" id="marketBanner">
+                <i class="fas fa-info-circle"></i>
+                <span id="marketBannerText">Fetching market status...</span>
+            </div>
+
+            <!-- Dashboard Page -->
+            <div id="dashboardPage" class="page active">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon blue"><i class="fas fa-building"></i></div>
+                        <div>
+                            <div class="stat-label">Total Companies</div>
+                            <div class="stat-value" id="totalCompanies">-</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon green"><i class="fas fa-chart-line"></i></div>
+                        <div>
+                            <div class="stat-label">Active Trading</div>
+                            <div class="stat-value" id="activeCompanies">-</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon success"><i class="fas fa-arrow-up"></i></div>
+                        <div>
+                            <div class="stat-label">Gainers</div>
+                            <div class="stat-value positive" id="gainersCount">-</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon danger"><i class="fas fa-arrow-down"></i></div>
+                        <div>
+                            <div class="stat-label">Losers</div>
+                            <div class="stat-value negative" id="losersCount">-</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="two-cols">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-fire"></i> Top Gainers</h3>
+                            <button class="refresh-btn" onclick="refreshData()"><i class="fas fa-sync-alt"></i></button>
+                        </div>
+                        <div id="gainersList" class="stock-list">
+                            <div class="loading">Loading gainers...</div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-brain"></i> Market Sentiment</h3>
+                        </div>
+                        <div id="marketSentiment" class="sentiment-card">
+                            <div class="loading">Analyzing market...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-list"></i> All Stocks</h3>
+                        <div class="search-mini">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="stockFilter" placeholder="Filter symbol...">
+                        </div>
+                    </div>
+                    <div id="allStocksList" class="stock-list">
+                        <div class="loading">Loading stocks...</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-newspaper"></i> Live News</h3>
+                        <button class="refresh-btn" onclick="refreshNews()"><i class="fas fa-sync-alt"></i></button>
+                    </div>
+                    <div id="newsList" class="news-list">
+                        <div class="loading">Loading news...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search Page -->
+            <div id="searchPage" class="page">
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-search"></i> Search Stock</h3>
+                    </div>
+                    <div class="search-container">
+                        <div class="search-wrapper">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="searchSymbol" placeholder="Enter symbol (UBL, SYS, MCB...)" autocomplete="off">
+                            <div id="suggestions" class="suggestions"></div>
+                        </div>
+                        <button class="btn-primary" onclick="searchStock()">Analyze</button>
+                    </div>
+                    <div id="searchResult"></div>
+                    <div class="popular-tags">
+                        <span>UBL</span>
+                        <span>MCB</span>
+                        <span>SYS</span>
+                        <span>ENGRO</span>
+                        <span>LUCK</span>
+                        <span>HUBC</span>
+                        <span>HBL</span>
+                        <span>POL</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ML Predict Page -->
+            <div id="predictPage" class="page">
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-robot"></i> ML Price Prediction</h3>
+                        <span class="badge-ai">AI Model</span>
+                    </div>
+                    <div class="search-container">
+                        <div class="search-wrapper">
+                            <i class="fas fa-chart-line"></i>
+                            <input type="text" id="predictSymbol" placeholder="Enter symbol for prediction...">
+                        </div>
+                        <button class="btn-primary" onclick="getMLPrediction()">Predict</button>
+                    </div>
+                    <div id="predictionResult"></div>
+                </div>
+            </div>
+
+            <!-- News Page -->
+            <div id="newsPage" class="page">
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-newspaper"></i> Market News</h3>
+                        <button class="refresh-btn" onclick="refreshNews()"><i class="fas fa-sync-alt"></i></button>
+                    </div>
+                    <div id="allNewsList" class="news-list">
+                        <div class="loading">Loading news...</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

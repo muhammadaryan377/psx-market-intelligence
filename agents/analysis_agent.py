@@ -1,48 +1,64 @@
-"""Analysis Agent - Performs technical analysis"""
-from agents.state import AgentState
-from datetime import datetime
-import random
-
+"""
+Analysis Agent - Technical Analysis - LangGraph compatible
+"""
 class AnalysisAgent:
-    """Agent responsible for technical analysis"""
+    """Performs technical analysis"""
     
-    def process(self, state: AgentState) -> AgentState:
-        """Perform technical analysis on market data"""
-        print("📈 Analysis Agent: Performing technical analysis...")
+    def process(self, state):
+        """Process state - technical analysis"""
+        print("📈 Analysis Agent: Technical analysis...")
         
         market_data = state.get("market_data", {})
+        price = market_data.get("price", 0)
+        change = market_data.get("change", 0)
         
-        if not market_data or "price" not in market_data:
-            state["technical_analysis"] = {"error": "Insufficient data"}
-            return state
+        if isinstance(price, str) or price == 0:
+            price = 100
+        if isinstance(change, str):
+            change = 0
         
-        # Calculate technical indicators
-        analysis = self._calculate_indicators(market_data)
+        # Calculate RSI (simulated)
+        if change > 2:
+            rsi = 75
+        elif change > 0:
+            rsi = 55
+        elif change < -2:
+            rsi = 25
+        elif change < 0:
+            rsi = 45
+        else:
+            rsi = 50
         
-        state["technical_analysis"] = analysis
-        state["messages"].append({
-            "agent": "AnalysisAgent",
-            "content": f"Technical analysis complete. RSI: {analysis.get('rsi', 'N/A')}",
-            "timestamp": datetime.now().isoformat()
-        })
+        # Determine trend
+        if change > 1.5:
+            trend = "strong_uptrend"
+        elif change > 0.5:
+            trend = "uptrend"
+        elif change < -1.5:
+            trend = "strong_downtrend"
+        elif change < -0.5:
+            trend = "downtrend"
+        else:
+            trend = "sideways"
         
+        # Support/Resistance
+        if price != 'N/A' and price != 0:
+            support = round(price * 0.95, 2)
+            resistance = round(price * 1.05, 2)
+        else:
+            support = 0
+            resistance = 0
+        
+        state["technical_analysis"] = {
+            "rsi": rsi,
+            "rsi_signal": "oversold" if rsi < 30 else "overbought" if rsi > 70 else "neutral",
+            "trend": trend,
+            "momentum": round(change, 2),
+            "support": support,
+            "resistance": resistance,
+            "overall": "BULLISH" if change > 1 else "BEARISH" if change < -1 else "NEUTRAL"
+        }
+        
+        print(f"   ✓ RSI: {rsi} | Trend: {trend}")
         state["current_step"] = "analysis_complete"
         return state
-    
-    def _calculate_indicators(self, data: dict) -> dict:
-        """Calculate various technical indicators"""
-        price = data.get("price", 100)
-        
-        # Simulate indicator calculations
-        return {
-            "rsi": random.randint(30, 70),
-            "macd": round(random.uniform(-10, 10), 2),
-            "moving_average_50": price * random.uniform(0.95, 1.05),
-            "moving_average_200": price * random.uniform(0.9, 1.1),
-            "bollinger_upper": price * 1.05,
-            "bollinger_lower": price * 0.95,
-            "support_levels": [price * 0.9, price * 0.85, price * 0.8],
-            "resistance_levels": [price * 1.1, price * 1.15, price * 1.2],
-            "trend": random.choice(["uptrend", "downtrend", "sideways"]),
-            "volatility": random.uniform(0.1, 0.3)
-        }

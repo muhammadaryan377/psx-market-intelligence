@@ -1,78 +1,85 @@
-"""Main LangGraph workflow for PSX intelligence system"""
-from typing import Dict, Any, Literal, Optional, List
+"""
+LangGraph Workflow - Complete agent orchestration
+"""
+from typing import Dict, Any
 from langgraph.graph import StateGraph, END
 import sys
-import os
+from pathlib import Path
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Fix: Import MemorySaver from correct location
+try:
+    from langgraph.checkpoint.memory import MemorySaver
+except ImportError:
+    try:
+        from langgraph.checkpoint import MemorySaver
+    except ImportError:
+        # If MemorySaver not available, define a simple version
+        class MemorySaver:
+            def __init__(self):
+                self.checkpoints = {}
+            
+            def get(self, config):
+                return self.checkpoints.get(config.get("configurable", {}).get("thread_id"))
+            
+            def put(self, config, state):
+                thread_id = config.get("configurable", {}).get("thread_id")
+                if thread_id:
+                    self.checkpoints[thread_id] = state
+
+sys.path.append(str(Path(__file__).parent.parent))
 
 from agents.state import AgentState
 from agents.data_agent import DataAgent
 from agents.news_agent import NewsAgent
 from agents.sentiment_agent import SentimentAgent
 from agents.analysis_agent import AnalysisAgent
-from agents.rag_agent import RAGAgent
 from agents.decision_agent import DecisionAgent
 
-class PSXIntelligenceGraph:
-    """Main orchestration graph for all agents"""
+class PSXGraph:
+    """LangGraph workflow for PSX agents"""
     
     def __init__(self):
-        # Initialize all agents
+        # Initialize agents
         self.data_agent = DataAgent()
         self.news_agent = NewsAgent()
         self.sentiment_agent = SentimentAgent()
         self.analysis_agent = AnalysisAgent()
-        self.rag_agent = RAGAgent()
         self.decision_agent = DecisionAgent()
         
-        # Build the graph
-        self.graph = self._build_graph()
+        # Build graph
+        self.app = self._build_graph()
+        self.memory = MemorySaver()
     
-    def _build_graph(self) -> StateGraph:
-        """Build the complete workflow graph"""
+    def _build_graph(self):
+        """Build the workflow graph"""
         workflow = StateGraph(AgentState)
         
-        # Add all agent nodes
-        workflow.add_node("data_collection", self.data_agent.process)
-        workflow.add_node("news_fetching", self.news_agent.process)
-        workflow.add_node("sentiment_analysis", self.sentiment_agent.process)
-        workflow.add_node("technical_analysis", self.analysis_agent.process)
-        workflow.add_node("rag_retrieval", self.rag_agent.process)
-        workflow.add_node("decision_making", self.decision_agent.process)
+        # Add nodes
+        workflow.add_node("data", lambda s: self.data_agent.process(s))
+        workflow.add_node("news", lambda s: self.news_agent.process(s))
+        workflow.add_node("sentiment", lambda s: self.sentiment_agent.process(s))
+        workflow.add_node("analysis", lambda s: self.analysis_agent.process(s))
+        workflow.add_node("decision", lambda s: self.decision_agent.process(s))
         
-        # Set entry point
-        workflow.set_entry_point("data_collection")
+        # Set entry
+        workflow.set_entry_point("data")
         
-        # Add conditional edges
-        workflow.add_conditional_edges(
-            "data_collection",
-            self._after_data_collection,
-            {
-                "has_symbol": "news_fetching",
-                "no_symbol": "decision_making"
-            }
-        )
-        
-        workflow.add_edge("news_fetching", "sentiment_analysis")
-        workflow.add_edge("sentiment_analysis", "technical_analysis")
-        workflow.add_edge("technical_analysis", "rag_retrieval")
-        workflow.add_edge("rag_retrieval", "decision_making")
-        workflow.add_edge("decision_making", END)
+        # Add edges - simple linear flow
+        workflow.add_edge("data", "news")
+        workflow.add_edge("news", "sentiment")
+        workflow.add_edge("sentiment", "analysis")
+        workflow.add_edge("analysis", "decision")
+        workflow.add_edge("decision", END)
         
         return workflow.compile()
     
-    def _after_data_collection(self, state: AgentState) -> Literal["has_symbol", "no_symbol"]:
-        """Decide next step based on whether we have a symbol"""
-        if state.get("market_data") and state["market_data"].get("symbol"):
-            return "has_symbol"
-        return "no_symbol"
-    
     def run(self, query: str, symbol: str = None) -> Dict[str, Any]:
-        """Run the complete agent pipeline"""
-        initial_state = {
+        """Run the workflow"""
+        
+        initial_state: AgentState = {
             "messages": [],
             "query": query,
+            "user_id": None,
             "market_data": {"symbol": symbol} if symbol else {},
             "news_data": [],
             "historical_data": [],
@@ -85,100 +92,17 @@ class PSXIntelligenceGraph:
             "current_step": "start",
             "next_agent": "",
             "errors": [],
-            "completed": False
+            "completed": False,
+            "iteration": 0
         }
         
-        result = self.graph.invoke(initial_state)
+        result = self.app.invoke(initial_state)
         return result
-"""Main LangGraph workflow for PSX intelligence system"""
-from langgraph.graph import StateGraph, END
-from typing import Literal
-import sys
-import os
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_graph = None
 
-from agents.state import AgentState
-from agents.data_agent import DataAgent
-from agents.news_agent import NewsAgent
-from agents.sentiment_agent import SentimentAgent
-from agents.analysis_agent import AnalysisAgent
-from agents.rag_agent import RAGAgent
-from agents.decision_agent import DecisionAgent
-
-class PSXIntelligenceGraph:
-    """Main orchestration graph for all agents"""
-    
-    def __init__(self):
-        # Initialize all agents
-        self.data_agent = DataAgent()
-        self.news_agent = NewsAgent()
-        self.sentiment_agent = SentimentAgent()
-        self.analysis_agent = AnalysisAgent()
-        self.rag_agent = RAGAgent()
-        self.decision_agent = DecisionAgent()
-        
-        # Build the graph
-        self.graph = self._build_graph()
-    
-    def _build_graph(self) -> StateGraph:
-        """Build the complete workflow graph"""
-        workflow = StateGraph(AgentState)
-        
-        # Add all agent nodes
-        workflow.add_node("data_collection", self.data_agent.process)
-        workflow.add_node("news_fetching", self.news_agent.process)
-        workflow.add_node("sentiment_analysis", self.sentiment_agent.process)
-        workflow.add_node("technical_analysis", self.analysis_agent.process)
-        workflow.add_node("rag_retrieval", self.rag_agent.process)
-        workflow.add_node("decision_making", self.decision_agent.process)
-        
-        # Set entry point
-        workflow.set_entry_point("data_collection")
-        
-        # Add conditional edges
-        workflow.add_conditional_edges(
-            "data_collection",
-            self._after_data_collection,
-            {
-                "has_symbol": "news_fetching",
-                "no_symbol": "decision_making"
-            }
-        )
-        
-        workflow.add_edge("news_fetching", "sentiment_analysis")
-        workflow.add_edge("sentiment_analysis", "technical_analysis")
-        workflow.add_edge("technical_analysis", "rag_retrieval")
-        workflow.add_edge("rag_retrieval", "decision_making")
-        workflow.add_edge("decision_making", END)
-        
-        return workflow.compile()
-    
-    def _after_data_collection(self, state: AgentState) -> Literal["has_symbol", "no_symbol"]:
-        """Decide next step based on whether we have a symbol"""
-        if state.get("market_data") and state["market_data"].get("symbol"):
-            return "has_symbol"
-        return "no_symbol"
-    
-    def run(self, query: str, symbol: str = None) -> Dict[str, Any]:
-        """Run the complete agent pipeline"""
-        initial_state = {
-            "messages": [],
-            "query": query,
-            "market_data": {"symbol": symbol} if symbol else {},
-            "news_data": [],
-            "historical_data": [],
-            "technical_analysis": {},
-            "sentiment_analysis": {},
-            "rag_context": [],
-            "risk_assessment": {},
-            "recommendations": [],
-            "confidence_score": 0.0,
-            "current_step": "start",
-            "next_agent": "",
-            "errors": [],
-            "completed": False
-        }
-        
-        result = self.graph.invoke(initial_state)
-        return result
+def get_graph():
+    global _graph
+    if _graph is None:
+        _graph = PSXGraph()
+    return _graph
