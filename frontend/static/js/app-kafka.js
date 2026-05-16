@@ -1,41 +1,30 @@
-// Market status and data source
-let currentDataSource = 'loading';
+// app-kafka.js - Kafka Version
 
-async function checkMarketStatus() {
-    try {
-        const res = await fetch('/api/market_status');
-        const status = await res.json();
-        
-        const dot = document.getElementById('marketDot');
-        const statusText = document.getElementById('marketStatus');
-        const banner = document.getElementById('marketBanner');
-        const bannerText = document.getElementById('marketBannerText');
-        const sourceBadge = document.getElementById('dataSourceBadge');
-        const sourceText = document.getElementById('dataSourceText');
-        
-        if (status.is_open) {
-            dot.className = 'status-dot open';
-            statusText.innerHTML = 'Market Open';
-            banner.className = 'market-banner open';
-            bannerText.innerHTML = '🟢 Market is OPEN - Showing live data from PSX';
-            sourceBadge.className = 'data-source-badge live';
-            sourceText.innerHTML = '📡 Live Data';
-            currentDataSource = 'live';
-        } else {
-            dot.className = 'status-dot';
-            statusText.innerHTML = 'Market Closed';
-            banner.className = 'market-banner closed';
-            bannerText.innerHTML = '🟡 Market is CLOSED - Showing last available data from storage';
-            sourceBadge.className = 'data-source-badge stored';
-            sourceText.innerHTML = '💾 Stored Data (Market Closed)';
-            currentDataSource = 'stored';
-        }
-    } catch(e) { 
-        console.error(e);
+// Configuration
+let currentDataSource = 'kafka';
+
+// Update time
+function updateDateTime() {
+    const now = new Date();
+    document.getElementById('currentDateTime').innerHTML = now.toLocaleString();
+    
+    const hours = now.getHours();
+    const day = now.getDay();
+    const isOpen = (hours >= 9 && hours < 16) && day >= 1 && day <= 5;
+    
+    const dot = document.getElementById('marketDot');
+    const status = document.getElementById('marketStatusText');
+    
+    if (isOpen) {
+        dot.className = 'status-dot open';
+        status.innerHTML = 'Market Open';
+    } else {
+        dot.className = 'status-dot';
+        status.innerHTML = 'Market Closed';
     }
 }
 
-// Load all stocks
+// Load all stocks from Kafka
 async function loadAllStocks() {
     try {
         const res = await fetch('/api/all_stocks');
@@ -70,7 +59,7 @@ async function loadAllStocks() {
             <div class="sentiment-card">
                 <div class="sentiment-value" style="color: ${sentimentColor}">${sentiment}</div>
                 <div style="font-size: 0.8rem; margin-top: 10px;">Avg Change: ${avgChange > 0 ? '+' : ''}${avgChange.toFixed(2)}%</div>
-                <div style="font-size: 0.7rem; margin-top: 5px; color: var(--text-muted);">Data source: ${currentDataSource === 'live' ? 'Live PSX' : 'Stored'}</div>
+                <div style="font-size: 0.7rem; margin-top: 5px; color: var(--text-muted);">Data source: Kafka Stream</div>
             </div>
         `;
         
@@ -139,8 +128,7 @@ async function loadNews() {
     }
 }
 
-
-
+// Search stock from Kafka
 async function searchStock() {
     const symbol = document.getElementById('searchSymbol').value.toUpperCase().trim();
     if (!symbol) {
@@ -148,55 +136,39 @@ async function searchStock() {
         return;
     }
     
-    // Client-side validation for invalid symbols like "00", "123"
     if (!/^[A-Z]+$/.test(symbol)) {
         document.getElementById('searchResult').innerHTML = `
             <div class="result-card">
                 <p style="color: var(--danger);">❌ Invalid symbol: "${symbol}"</p>
-                <p style="color: var(--text-muted);">Use only letters (A-Z). Example: UBL, MCB, SYS</p>
+                <p style="color: var(--text-muted);">Use only letters (A-Z)</p>
             </div>
         `;
         return;
     }
     
-    if (symbol.length < 2 || symbol.length > 5) {
-        document.getElementById('searchResult').innerHTML = `
-            <div class="result-card">
-                <p style="color: var(--danger);">❌ Invalid symbol: "${symbol}"</p>
-                <p style="color: var(--text-muted);">Symbol should be 2-5 characters. Example: UBL, MCB, SYS</p>
-            </div>
-        `;
-        return;
-    }
-    
-    document.getElementById('searchResult').innerHTML = '<div class="result-card"><div class="loading">Fetching data...</div></div>';
+    document.getElementById('searchResult').innerHTML = '<div class="result-card"><div class="loading">Fetching from Kafka...</div></div>';
     
     try {
-        const res = await fetch(`/api/stock/${symbol}`);
-        const d = await res.json();
+        // First try Kafka API
+        let res = await fetch(`/api/kafka/stock/${symbol}`);
+        let d = await res.json();
         
-        // Check for error from API
+        // Fallback to direct API if no Kafka data
         if (d.error) {
+            res = await fetch(`/api/stock/${symbol}`);
+            d = await res.json();
+        }
+        
+        if (d.error || d.price === 'N/A') {
             document.getElementById('searchResult').innerHTML = `
                 <div class="result-card">
-                    <p style="color: var(--danger);">${d.error}</p>
-                    <p style="color: var(--text-muted); margin-top: 10px;">💡 Try: UBL, MCB, SYS, ENGRO, LUCK</p>
+                    <p style="color: var(--danger);">❌ Symbol '${symbol}' not found</p>
+                    <p style="color: var(--text-muted);">💡 Try: UBL, MCB, SYS, ENGRO, LUCK</p>
                 </div>
             `;
             return;
         }
         
-        if (d.price === 'N/A' || d.recommendation === 'NOT FOUND') {
-            document.getElementById('searchResult').innerHTML = `
-                <div class="result-card">
-                    <p style="color: var(--danger);">❌ Symbol '${symbol}' not found on PSX</p>
-                    <p style="color: var(--text-muted); margin-top: 10px;">💡 Try: UBL, MCB, SYS, ENGRO, LUCK</p>
-                </div>
-            `;
-            return;
-        }
-        
-        // Build result details HTML
         let resultDetailsHtml = `
             <div class="result-detail">
                 <div class="result-detail-label">Sentiment</div>
@@ -207,26 +179,10 @@ async function searchStock() {
                 <div class="result-detail-value">${d.rsi}</div>
             </div>
             <div class="result-detail">
-                <div class="result-detail-label">Trend</div>
-                <div class="result-detail-value">${d.trend}</div>
-            </div>
-            <div class="result-detail">
                 <div class="result-detail-label">Confidence</div>
                 <div class="result-detail-value">${d.confidence}%</div>
             </div>
         `;
-        
-        // Add ML Trend if available
-        if (d.ml_trend && d.ml_trend.trend) {
-            resultDetailsHtml += `
-                <div class="result-detail">
-                    <div class="result-detail-label">🤖 ML Trend</div>
-                    <div class="result-detail-value ${d.ml_trend.trend === 'up' ? 'positive' : d.ml_trend.trend === 'down' ? 'negative' : ''}">
-                        ${d.ml_trend.trend.toUpperCase()} (${d.ml_trend.confidence}%)
-                    </div>
-                </div>
-            `;
-        }
         
         document.getElementById('searchResult').innerHTML = `
             <div class="result-card">
@@ -241,7 +197,7 @@ async function searchStock() {
                 <div class="result-details">
                     ${resultDetailsHtml}
                 </div>
-                ${d.data_source ? `<div class="data-note">📌 ${d.market_message || 'Data source: ' + d.data_source}</div>` : ''}
+                <div class="data-note">📡 Source: ${d.source || 'Kafka Stream'}</div>
             </div>
         `;
         
@@ -252,7 +208,6 @@ async function searchStock() {
 }
 
 // ML Prediction
-// ML Prediction
 async function getMLPrediction() {
     const symbol = document.getElementById('predictSymbol').value.toUpperCase().trim();
     
@@ -261,22 +216,10 @@ async function getMLPrediction() {
         return;
     }
     
-    // Client-side validation
     if (!/^[A-Z]+$/.test(symbol)) {
         document.getElementById('predictionResult').innerHTML = `
             <div class="prediction-card">
                 <p style="color: var(--danger);">❌ Invalid symbol: "${symbol}"</p>
-                <p style="color: var(--text-muted);">Use only letters (A-Z). Example: UBL, MCB, SYS</p>
-            </div>
-        `;
-        return;
-    }
-    
-    if (symbol.length < 2 || symbol.length > 5) {
-        document.getElementById('predictionResult').innerHTML = `
-            <div class="prediction-card">
-                <p style="color: var(--danger);">❌ Invalid symbol: "${symbol}"</p>
-                <p style="color: var(--text-muted);">Symbol should be 2-5 characters. Example: UBL, MCB, SYS</p>
             </div>
         `;
         return;
@@ -312,30 +255,8 @@ async function getMLPrediction() {
                     📊 Expected Return: ${changeSign}${pred.expected_return}%
                 </div>
                 <div style="margin-top: 10px;">🎯 Confidence: ${pred.confidence}%</div>
+            </div>
         `;
-        
-        // Add trend display in prediction result
-        if (pred.ml_trend) {
-            let trendColor = '';
-            let confidence = pred.ml_trend_confidence || 50;
-            
-            if (pred.ml_trend === 'up') trendColor = 'positive';
-            else if (pred.ml_trend === 'down') trendColor = 'negative';
-            
-            let confidenceLevel = '';
-            if (confidence >= 70) confidenceLevel = '🔥 High';
-            else if (confidence >= 55) confidenceLevel = '📊 Medium';
-            else confidenceLevel = '⚡ Low';
-            
-            predictionHtml += `
-                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);">
-                    🤖 ML Trend: <span class="${trendColor}">${pred.ml_trend.toUpperCase()} (${confidence}%)</span>
-                    <span style="font-size: 0.7rem; margin-left: 8px; color: var(--text-muted);">${confidenceLevel} confidence</span>
-                </div>
-            `;
-        }
-        
-        predictionHtml += `</div>`;
         
         document.getElementById('predictionResult').innerHTML = predictionHtml;
         
@@ -345,6 +266,37 @@ async function getMLPrediction() {
     }
 }
 
+// Suggestions
+let suggestionTimeout;
+async function getSuggestions() {
+    const query = document.getElementById('searchSymbol').value.toUpperCase();
+    const div = document.getElementById('suggestions');
+    
+    if (query.length < 1) {
+        div.style.display = 'none';
+        return;
+    }
+    
+    try {
+        const res = await fetch(`/api/suggest/${query}`);
+        const suggestions = await res.json();
+        
+        if (suggestions.length > 0) {
+            div.innerHTML = suggestions.map(s => 
+                `<div class="suggestion-item" onclick="selectSuggestion('${s}')">${s}</div>`
+            ).join('');
+            div.style.display = 'block';
+        } else {
+            div.style.display = 'none';
+        }
+    } catch(e) { console.error(e); }
+}
+
+function selectSuggestion(s) {
+    document.getElementById('searchSymbol').value = s;
+    document.getElementById('suggestions').style.display = 'none';
+    searchStock();
+}
 
 // Filter stocks
 document.getElementById('stockFilter')?.addEventListener('input', (e) => {
@@ -374,7 +326,7 @@ document.querySelectorAll('.nav-link').forEach(link => {
         document.getElementById('pageTitle').innerHTML = link.querySelector('span').innerHTML;
         
         if (page === 'dashboard') {
-            document.getElementById('pageSubtitle').innerHTML = 'Real-time market overview';
+            document.getElementById('pageSubtitle').innerHTML = 'Real-time market overview (Kafka)';
             refreshData();
             refreshNews();
         } else if (page === 'search') {
@@ -411,12 +363,11 @@ document.getElementById('searchSymbol')?.addEventListener('input', () => {
 });
 
 // Initial loads
-checkMarketStatus();
-setInterval(checkMarketStatus, 60000);
+updateDateTime();
+setInterval(updateDateTime, 1000);
 loadAllStocks();
 loadGainersLosers();
 loadNews();
-
 
 // Auto refresh every 30 seconds
 setInterval(() => {

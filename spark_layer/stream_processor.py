@@ -1,142 +1,182 @@
-from pathlib import Path
-import os
+"""
+Kafka Topics Setup - Create, list, delete topics
+"""
 import sys
+from pathlib import Path
+from kafka import KafkaAdminClient
+from kafka.admin import NewTopic
+from kafka.errors import NoBrokersAvailable, TopicAlreadyExistsError, UnknownTopicOrPartitionError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-LOCAL_HADOOP_HOME = PROJECT_ROOT / ".hadoop"
-
-
-def configure_local_hadoop():
-    if os.name != "nt":
-        return
-
-    existing_hadoop_home = os.environ.get("HADOOP_HOME")
-    if existing_hadoop_home:
-        existing_bin = Path(existing_hadoop_home) / "bin"
-        if (existing_bin / "winutils.exe").exists() and (existing_bin / "hadoop.dll").exists():
-            return
-
-    winutils_path = LOCAL_HADOOP_HOME / "bin" / "winutils.exe"
-    hadoop_dll_path = LOCAL_HADOOP_HOME / "bin" / "hadoop.dll"
-    if not winutils_path.exists() or not hadoop_dll_path.exists():
-        return
-
-    os.environ["HADOOP_HOME"] = str(LOCAL_HADOOP_HOME)
-    os.environ["HADOOP_CONF_DIR"] = str(LOCAL_HADOOP_HOME / "etc" / "hadoop")
-    os.environ["PATH"] = f"{winutils_path.parent};{os.environ.get('PATH', '')}"
-
-
-configure_local_hadoop()
-
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import pyspark
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, from_json
-from pyspark.sql.types import DoubleType, LongType, StringType, StructType
-
 from config.kafka_config import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC
 
-
-SPARK_VERSION = pyspark.__version__
-SCALA_BINARY_VERSION = "" \
-"2.13" if SPARK_VERSION.startswith("4.") else "2.12"
-KAFKA_CONNECTOR_PACKAGE = (
-    f"org.apache.spark:spark-sql-kafka-0-10_{SCALA_BINARY_VERSION}:{SPARK_VERSION}"
-)
-KAFKA_CONNECTOR_JAR_NAMES = [
-    "com.google.code.findbugs_jsr305-3.0.0.jar",
-    "org.apache.commons_commons-pool2-2.12.1.jar",
-    "org.apache.hadoop_hadoop-client-api-3.4.2.jar",
-    "org.apache.hadoop_hadoop-client-runtime-3.4.2.jar",
-    "org.apache.kafka_kafka-clients-3.9.1.jar",
-    f"org.apache.spark_spark-sql-kafka-0-10_{SCALA_BINARY_VERSION}-{SPARK_VERSION}.jar",
-    f"org.apache.spark_spark-token-provider-kafka-0-10_{SCALA_BINARY_VERSION}-{SPARK_VERSION}.jar",
-    "org.lz4_lz4-java-1.8.0.jar",
-    "org.scala-lang.modules_scala-parallel-collections_2.13-1.2.0.jar",
-    "org.slf4j_slf4j-api-2.0.17.jar",
-    "org.xerial.snappy_snappy-java-1.1.10.8.jar",
-]
-
-TICK_SCHEMA = StructType() \
-    .add("symbol", StringType()) \
-    .add("price", DoubleType()) \
-    .add("volume", LongType()) \
-    .add("high", DoubleType()) \
-    .add("low", DoubleType()) \
-    .add("timestamp", StringType())
+# Additional topics for different data streams
+ADDITIONAL_TOPICS = {
+    'psx-stock-prices': 3,      # 3 partitions for stock prices
+    'psx-news-data': 2,          # 2 partitions for news
+    'psx-sentiment': 2,          # 2 partitions for sentiment
+    'psx-predictions': 1         # 1 partition for ML predictions
+}
 
 
-def create_spark_session():
-    configure_local_hadoop()
-
-    builder = SparkSession.builder \
-        .appName("PSX Kafka Stream Processor") \
-        .config(
-            "spark.hadoop.hadoop.security.group.mapping",
-            "org.apache.hadoop.security.ShellBasedUnixGroupsMapping",
-        )
-    connector_classpath = get_cached_kafka_connector_classpath()
-
-    if connector_classpath:
-        builder = builder \
-            .config("spark.driver.extraClassPath", connector_classpath) \
-            .config("spark.executor.extraClassPath", connector_classpath)
-    else:
-        builder = builder.config("spark.jars.packages", KAFKA_CONNECTOR_PACKAGE)
-
-    return builder.getOrCreate()
+def create_admin_client():
+    return KafkaAdminClient(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
 
 
-def get_cached_kafka_connector_classpath():
-    ivy_jars_dir = Path.home() / ".ivy2.5.2" / "jars"
-    jar_paths = [ivy_jars_dir / name for name in KAFKA_CONNECTOR_JAR_NAMES]
-
-    if not all(path.exists() for path in jar_paths):
-        return None
-
-    return ";".join(str(path) for path in jar_paths)
-
-
-def read_psx_ticks(spark):
-    return spark.readStream \
-        .format("kafka") \
-        .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
-        .option("subscribe", KAFKA_TOPIC) \
-        .option("startingOffsets", "latest") \
-        .option("failOnDataLoss", "false") \
-        .load()
-
-
-def parse_ticks(raw_df):
-    return raw_df.selectExpr("CAST(value AS STRING) as json_str") \
-        .select(from_json(col("json_str"), TICK_SCHEMA).alias("data")) \
-        .select("data.*") \
-        .where(col("symbol").isNotNull())
+def create_topic(topic_name: str, num_partitions: int = 1, replication_factor: int = 1):
+    """Create Kafka topic"""
+    admin = create_admin_client()
+    topic = NewTopic(
+        name=topic_name,
+        num_partitions=num_partitions,
+        replication_factor=replication_factor,
+    )
+    
+    try:
+        admin.create_topics(new_topics=[topic], validate_only=False)
+        print(f"✅ Created Kafka topic: '{topic_name}' (partitions: {num_partitions})")
+        return True
+    except TopicAlreadyExistsError:
+        print(f"⚠️ Topic already exists: '{topic_name}'")
+        return False
+    except Exception as e:
+        print(f"❌ Error creating topic '{topic_name}': {e}")
+        return False
+    finally:
+        admin.close()
 
 
-def write_to_console(parsed_df):
-    return parsed_df.writeStream \
-       .format("console") \
-       .outputMode("append") \
-       .option("truncate", "false") \
-       .option("checkpointLocation", "C:/tmp/checkpoint") \
-       .start()
+def create_all_topics():
+    """Create all required topics"""
+    print("\n" + "="*60)
+    print("📦 CREATING KAFKA TOPICS")
+    print("="*60)
+    
+    # Create main topic
+    create_topic(KAFKA_TOPIC, num_partitions=3)
+    
+    # Create additional topics
+    for topic_name, partitions in ADDITIONAL_TOPICS.items():
+        create_topic(topic_name, num_partitions=partitions)
+    
+    print("="*60 + "\n")
+
+
+def list_topics():
+    """List all available topics with details"""
+    admin = create_admin_client()
+    try:
+        topics = admin.list_topics()
+        print("\n" + "="*60)
+        print("📋 AVAILABLE KAFKA TOPICS")
+        print("="*60)
+        
+        for topic in sorted(topics):
+            # Get topic details
+            try:
+                metadata = admin.describe_topics([topic])
+                partitions = len(metadata[0].partitions) if metadata else '?'
+                print(f"   📌 {topic} (partitions: {partitions})")
+            except:
+                print(f"   📌 {topic}")
+        
+        print("="*60 + f"\nTotal: {len(topics)} topics\n")
+    except Exception as e:
+        print(f"❌ Error listing topics: {e}")
+    finally:
+        admin.close()
+    
+    return topics
+
+
+def delete_topic(topic_name: str):
+    """Delete a topic (use carefully)"""
+    admin = create_admin_client()
+    try:
+        admin.delete_topics(topics=[topic_name])
+        print(f"🗑️ Deleted topic: '{topic_name}'")
+        return True
+    except UnknownTopicOrPartitionError:
+        print(f"⚠️ Topic not found: '{topic_name}'")
+        return False
+    except Exception as e:
+        print(f"❌ Error deleting topic '{topic_name}': {e}")
+        return False
+    finally:
+        admin.close()
+
+
+def delete_all_topics():
+    """Delete all PSX-related topics"""
+    print("\n" + "="*60)
+    print("⚠️ DELETING ALL PSX TOPICS")
+    print("="*60)
+    
+    topics_to_delete = [KAFKA_TOPIC] + list(ADDITIONAL_TOPICS.keys())
+    
+    for topic_name in topics_to_delete:
+        delete_topic(topic_name)
+    
+    print("="*60 + "\n")
+
+
+def get_topic_info(topic_name: str):
+    """Get detailed information about a topic"""
+    admin = create_admin_client()
+    try:
+        metadata = admin.describe_topics([topic_name])
+        if metadata:
+            topic = metadata[0]
+            print(f"\n📊 Topic: {topic.topic}")
+            print(f"   Partitions: {len(topic.partitions)}")
+            for partition in topic.partitions:
+                print(f"   - Partition {partition.partition}: leader={partition.leader}, replicas={len(partition.replicas)}")
+    except Exception as e:
+        print(f"❌ Error getting topic info: {e}")
+    finally:
+        admin.close()
 
 
 def main():
-    spark = create_spark_session()
-    spark.sparkContext.setLogLevel("WARN")
-
-    print(f"Reading Kafka topic '{KAFKA_TOPIC}' from {KAFKA_BOOTSTRAP_SERVERS}")
-
-    raw_df = read_psx_ticks(spark)
-    parsed_df = parse_ticks(raw_df)
-    query = write_to_console(parsed_df)
-    query.awaitTermination()
+    import argparse
+    parser = argparse.ArgumentParser(description='Kafka Topics Management')
+    parser.add_argument('--list', action='store_true', help='List all topics')
+    parser.add_argument('--create', type=str, help='Create a specific topic')
+    parser.add_argument('--create-all', action='store_true', help='Create all required topics')
+    parser.add_argument('--delete', type=str, help='Delete a specific topic')
+    parser.add_argument('--delete-all', action='store_true', help='Delete all PSX topics')
+    parser.add_argument('--info', type=str, help='Get info about a topic')
+    parser.add_argument('--partitions', type=int, default=3, help='Number of partitions (default: 3)')
+    
+    args = parser.parse_args()
+    
+    try:
+        if args.list:
+            list_topics()
+        elif args.create:
+            create_topic(args.create, num_partitions=args.partitions)
+        elif args.create_all:
+            create_all_topics()
+        elif args.delete:
+            delete_topic(args.delete)
+        elif args.delete_all:
+            delete_all_topics()
+        elif args.info:
+            get_topic_info(args.info)
+        else:
+            # Default: create main topic if not exists
+            create_topic(KAFKA_TOPIC, num_partitions=3)
+            
+    except NoBrokersAvailable:
+        print(f"\n❌ Kafka broker not available at {KAFKA_BOOTSTRAP_SERVERS}")
+        print("💡 Make sure Kafka is running: docker-compose up -d kafka zookeeper")
+        return 1
+    
+    return 0
 
 
 if __name__ == "__main__":
-    main()
-
+    sys.exit(main())

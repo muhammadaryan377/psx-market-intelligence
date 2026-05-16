@@ -20,6 +20,7 @@ from agents.decision_agent import DecisionAgent
 from rag_layer import get_rag
 from services.stock_service import stock_service
 from services.market_status import market_status
+from ml_models.trend_predictor import trend_predictor
 
 app = Flask(__name__)
 CORS(app)
@@ -32,9 +33,45 @@ analysis_agent = AnalysisAgent()
 decision_agent = DecisionAgent()
 rag = get_rag()
 
+kafka_latest_data = {}
+
 # Store for historical data
 HISTORICAL_DATA_FILE = Path("data/historical_prices.json")
 HISTORICAL_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+# ========== KAFKA SECTION ==========
+# Global variable for Kafka data
+kafka_latest_data = {}
+
+def init_kafka_consumer():
+    """Initialize Kafka consumer in background"""
+    import threading
+    from kafka import KafkaConsumer
+    import json
+    
+    def consume():
+        global kafka_latest_data
+        try:
+            consumer = KafkaConsumer(
+                'psx-stock-prices',
+                bootstrap_servers='localhost:9092',
+                auto_offset_reset='latest',
+                enable_auto_commit=True,
+                value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+                api_version_auto_timeout_ms=3000
+            )
+            for message in consumer:
+                tick = message.value
+                kafka_latest_data[tick['symbol']] = tick
+                print(f"Kafka received: {tick['symbol']} @ {tick['price']}")
+        except Exception as e:
+            print(f"Kafka consumer error: {e}")
+    
+    thread = threading.Thread(target=consume, daemon=True)
+    thread.start()
+    print("✅ Kafka consumer thread started")
+
+# Call this when Kafka is available
+# init_kafka_consumer()
 
 def load_historical_data():
     """Load stored historical data"""
@@ -49,6 +86,29 @@ def save_historical_data(data):
         json.dump(data, f, indent=2)
 
 historical_cache = load_historical_data()
+
+def get_historical_prices(symbol):
+    """Generate historical prices for ML prediction"""
+    symbol = symbol.upper()
+    
+    # Try to get from cache first
+    if symbol in historical_cache and historical_cache[symbol]:
+        prices = [item['price'] for item in historical_cache[symbol][-30:]]
+        if len(prices) >= 10:
+            return prices
+    
+    # Generate based on current price
+    live_data, _ = get_live_or_stored_price(symbol)
+    base_price = live_data['price'] if live_data else 100
+    
+    prices = []
+    price = base_price
+    for i in range(30):
+        change_pct = random.uniform(-0.03, 0.03)
+        price = price * (1 + change_pct)
+        prices.append(max(price * 0.5, min(price * 1.5, price)))
+    
+    return prices
 
 def get_live_or_stored_price(symbol):
     """Get live price if market open, else get stored data"""
@@ -116,6 +176,11 @@ def get_live_or_stored_price(symbol):
 def index():
     return render_template('index.html')
 
+# Add this route for Kafka version
+@app.route('/kafka')
+def index_kafka():
+    return render_template('index-kafka.html')
+
 @app.route('/api/market_status')
 def get_market_status():
     """Get current market status"""
@@ -175,11 +240,55 @@ def get_stock(symbol):
     rsi = max(30, min(70, rsi))
     
     if change > 1:
-        trend = 'uptrend'
+        price_trend = 'uptrend'
     elif change < -1:
-        trend = 'downtrend'
+        price_trend = 'downtrend'
     else:
-        trend = 'sideways'
+        price_trend = 'sideways'
+    
+    # Get ML Trend Prediction with proper confidence
+    ml_trend = "neutral"
+    ml_trend_conf = 50
+    try:
+        historical_prices = get_historical_prices(symbol)
+        ml_trend, base_conf = trend_predictor.predict_trend(historical_prices)
+        
+        # Calculate confidence based on actual price movement
+        if ml_trend == 'up':
+            if change > 2:
+                ml_trend_conf = 85
+            elif change > 1:
+                ml_trend_conf = 75
+            elif change > 0.5:
+                ml_trend_conf = 65
+            else:
+                ml_trend_conf = 55
+        elif ml_trend == 'down':
+            if change < -2:
+                ml_trend_conf = 85
+            elif change < -1:
+                ml_trend_conf = 75
+            elif change < -0.5:
+                ml_trend_conf = 65
+            else:
+                ml_trend_conf = 55
+        else:
+            # Neutral trend
+            if abs(change) < 0.5:
+                ml_trend_conf = 50
+            elif change > 0:
+                ml_trend_conf = 55
+                ml_trend = 'up'
+            elif change < 0:
+                ml_trend_conf = 55
+                ml_trend = 'down'
+        
+        # Blend with model confidence
+        ml_trend_conf = int((ml_trend_conf + base_conf) / 2)
+        ml_trend_conf = max(50, min(85, ml_trend_conf))
+        
+    except Exception as e:
+        print(f"Trend predictor error: {e}")
     
     try:
         rag_context = rag.get_context(symbol) if rag else []
@@ -193,14 +302,19 @@ def get_stock(symbol):
         'recommendation': rec,
         'sentiment': sent,
         'rsi': int(round(rsi)),
-        'trend': trend,
+        'trend': price_trend,
         'confidence': int(conf),
         'market_status': status['status'],
         'market_message': status['message'],
         'data_source': live_data['source'],
         'news': state.get('news_data', [])[:3],
-        'rag_context': rag_context
+        'rag_context': rag_context,
+        'ml_trend': {
+            'trend': ml_trend,
+            'confidence': ml_trend_conf
+        }
     })
+
 
 @app.route('/api/all_stocks')
 def all_stocks():
@@ -293,28 +407,49 @@ def suggest(prefix):
 @app.route('/api/ml_predict/<symbol>')
 def ml_predict(symbol):
     """Get ML prediction for a specific symbol"""
-    symbol = symbol.upper()
+    symbol = symbol.upper().strip()
+    
+    # ===== VALIDATION 1: Check if symbol contains only letters =====
+    if not symbol.isalpha():
+        return jsonify({'error': f'❌ Invalid symbol: "{symbol}". Symbol must contain only letters (A-Z). Example: UBL, MCB, SYS'})
+    
+    # ===== VALIDATION 2: Check symbol length =====
+    if len(symbol) < 2 or len(symbol) > 5:
+        return jsonify({'error': f'❌ Invalid symbol: "{symbol}". Symbol length should be 2-5 characters. Example: UBL, MCB, SYS'})
+    
+    # ===== VALIDATION 3: Check if symbol exists in PSX =====
+    valid_symbols = stock_service.get_all_tickers()
+    if symbol not in valid_symbols:
+        similar = [s for s in valid_symbols if symbol in s][:5]
+        if similar:
+            return jsonify({'error': f'❌ Symbol "{symbol}" not found. Did you mean: {", ".join(similar)}?'})
+        else:
+            return jsonify({'error': f'❌ Symbol "{symbol}" not found on PSX. Try: UBL, MCB, SYS, ENGRO, LUCK'})
     
     live_data, status = get_live_or_stored_price(symbol)
     
     if not live_data or live_data.get('price') == 'N/A':
-        return jsonify({'error': 'Symbol not found'})
+        return jsonify({'error': f'❌ Price data not available for {symbol}. Market may be closed.'})
     
     current_price = float(live_data['price'])
     
     try:
         from ml_models.price_predictor import price_predictor
+        from ml_models.trend_predictor import trend_predictor
         
-        # Generate historical prices based on current price
-        historical = []
-        base_price = current_price
-        for i in range(30):
-            change_pct = random.uniform(-0.03, 0.03)
-            price = base_price * (1 + change_pct)
-            historical.append(float(price))
+        # Get historical prices
+        historical_prices = get_historical_prices(symbol)
         
-        # Use last 20 for prediction
-        recent_prices = [float(p) for p in historical[-20:]]
+        if len(historical_prices) < 10:
+            # Generate if not enough
+            historical_prices = []
+            price = current_price
+            for i in range(30):
+                change_pct = random.uniform(-0.03, 0.03)
+                price = price * (1 + change_pct)
+                historical_prices.append(float(price))
+        
+        recent_prices = [float(p) for p in historical_prices[-20:]]
         
         # Train model
         price_predictor.train(recent_prices)
@@ -335,13 +470,18 @@ def ml_predict(symbol):
             
             confidence = int(min(85, 50 + abs(expected_return) * 5))
             
+            # Get trend prediction
+            ml_trend, ml_trend_conf = trend_predictor.predict_trend(historical_prices)
+            
             return jsonify({
                 'symbol': str(symbol),
                 'current_price': round(current_price, 2),
                 'predicted_price': round(next_price, 2),
                 'expected_return': round(expected_return, 1),
                 'action': str(action),
-                'confidence': confidence
+                'confidence': confidence,
+                'ml_trend': ml_trend,
+                'ml_trend_confidence': round(ml_trend_conf)
             })
         else:
             return jsonify({'error': 'Could not generate prediction'})
@@ -351,6 +491,55 @@ def ml_predict(symbol):
         import traceback
         traceback.print_exc()
         return jsonify({'error': f'Prediction error: {str(e)}'})
+    
+@app.route('/api/kafka/stock/<symbol>')
+def get_kafka_stock(symbol):
+    """Get stock data from Kafka stream"""
+    symbol = symbol.upper()
+    data = kafka_latest_data.get(symbol)
+    
+    if not data:
+        return jsonify({'error': 'No data from Kafka yet', 'symbol': symbol})
+    
+    price = data.get('price')
+    change_pct = data.get('change_pct', 0)
+    
+    if change_pct > 2:
+        rec = 'STRONG BUY'
+        conf = 85
+    elif change_pct > 0:
+        rec = 'BUY'
+        conf = 70
+    elif change_pct < -2:
+        rec = 'STRONG SELL'
+        conf = 85
+    elif change_pct < 0:
+        rec = 'SELL'
+        conf = 65
+    else:
+        rec = 'HOLD'
+        conf = 50
+    
+    if change_pct > 1:
+        sent = 'bullish'
+    elif change_pct < -1:
+        sent = 'bearish'
+    else:
+        sent = 'stable'
+    
+    rsi = 50 + (change_pct * 2)
+    rsi = max(30, min(70, rsi))
+    
+    return jsonify({
+        'symbol': symbol,
+        'price': price,
+        'change': round(change_pct, 2),
+        'recommendation': rec,
+        'sentiment': sent,
+        'rsi': round(rsi),
+        'confidence': conf,
+        'source': 'kafka'
+    })
 
 if __name__ == '__main__':
     print("\n" + "="*50)
