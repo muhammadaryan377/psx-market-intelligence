@@ -10,6 +10,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.app_config import ALL_TICKERS_FILE, HISTORICAL_DIR, SAMPLE_DATA_FILE
+from utils.sector_utils import add_sector_column
+from utils.price_data_utils import clean_price_dataframe
 
 START_DATE = "2016-05-09"
 END_DATE = "2026-05-09"
@@ -60,6 +62,18 @@ def download_historical_data():
                 continue
 
             df["symbol"] = symbol
+            df["source"] = "psxdata"
+            df["ingested_at"] = pd.Timestamp.now().isoformat(timespec="seconds")
+
+            # Enrich and clean before writing. strict=True prevents price data
+            # from being saved when a symbol is missing in the sector mapping.
+            df = add_sector_column(df, strict=True)
+            df, _ = clean_price_dataframe(
+                df,
+                strict_sector=True,
+                source_default="psxdata",
+                log_prefix=f"{symbol}:",
+            )
 
             file_path = HISTORICAL_DIR / f"{symbol}.csv"
             df.to_csv(file_path, index=False)

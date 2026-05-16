@@ -1,4 +1,4 @@
-symbol,date,open,high,low,close,volume,source,ingested_at,sector
+symbol,date,open,high,low,close,volume,source,collected_at,sector
 AGHA,2020-11-02,32.5,34.4,31.75,34.4,16760000,psxdata,2026-05-11T12:52:35,ENGINEERING
 AGHA,2020-11-03,35.1,35.54,33.51,33.93,19750000,psxdata,2026-05-11T12:52:35,ENGINEERING
 AGHA,2020-11-04,34.19,34.19,32.7,32.98,8797500,psxdata,2026-05-11T12:52:35,ENGINEERING

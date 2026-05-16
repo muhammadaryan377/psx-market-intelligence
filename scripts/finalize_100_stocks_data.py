@@ -13,7 +13,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.app_config import DATA_DIR, LOG_DIR, METADATA_DIR, PROCESSED_DIR, RAW_PRICE_DIR
+from config.app_config import DATA_DIR, LOG_DIR, METADATA_DIR, PROCESSED_DIR, RAW_PRICE_DIR, REPORTS_DIR
+from utils.sector_utils import add_sector_column
+from utils.price_data_utils import clean_price_dataframe, build_price_quality_report
 
 # -----------------------------
 # Project Settings
@@ -39,7 +41,7 @@ FILTERED_TICKERS_FILE = METADATA_DIR / "filtered_common_stocks.csv"
 LIQUIDITY_RANK_FILE = METADATA_DIR / "liquidity_rank.csv"
 TARGET_100_FILE = METADATA_DIR / "target_100_stocks.csv"
 FINAL_PRICE_FILE = PROCESSED_DIR / "psx_prices_100_daily.csv"
-QUALITY_REPORT_FILE = PROCESSED_DIR / "psx_prices_100_quality_report.csv"
+QUALITY_REPORT_FILE = REPORTS_DIR / "price_data_quality_report.csv"
 FAILED_SYMBOLS_FILE = LOG_DIR / "failed_symbols.csv"
 
 
@@ -47,6 +49,7 @@ def make_dirs():
     METADATA_DIR.mkdir(parents=True, exist_ok=True)
     RAW_PRICE_DIR.mkdir(parents=True, exist_ok=True)
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -116,7 +119,8 @@ def standardize_columns(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
     """
     psxdata output ko standard schema main convert karta hai.
     Final schema:
-    symbol, date, open, high, low, close, volume, source, collected_at
+    symbol, date, open, high, low, close, volume, source, ingested_at
+    Sector is added later, right before each price CSV is written.
     """
 
     if df is None or df.empty:
@@ -179,7 +183,7 @@ def standardize_columns(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         clean_df[col] = pd.to_numeric(clean_df[col], errors="coerce")
 
     clean_df["source"] = "psxdata"
-    clean_df["collected_at"] = datetime.now().isoformat(timespec="seconds")
+    clean_df["ingested_at"] = datetime.now().isoformat(timespec="seconds")
 
     clean_df = clean_df[
         [
@@ -191,7 +195,7 @@ def standardize_columns(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
             "close",
             "volume",
             "source",
-            "collected_at",
+            "ingested_at",
         ]
     ]
 
@@ -351,6 +355,13 @@ def download_full_history(target_symbols: list) -> pd.DataFrame:
 
         try:
             df = fetch_stock_data(symbol, START_DATE, END_DATE, retries=3)
+            df = add_sector_column(df, strict=True)
+            df, _ = clean_price_dataframe(
+                df,
+                strict_sector=True,
+                source_default="psxdata",
+                log_prefix=f"{symbol}:",
+            )
 
             raw_file = RAW_PRICE_DIR / f"{symbol}.csv"
             df.to_csv(raw_file, index=False)
@@ -396,54 +407,17 @@ def download_full_history(target_symbols: list) -> pd.DataFrame:
 
 
 def clean_final_dataset(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-
-    df["symbol"] = df["symbol"].astype(str).str.upper().str.strip()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-    for col in ["open", "high", "low", "close", "volume"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    df = df.dropna(subset=["symbol", "date", "open", "high", "low", "close"])
-    df = df.drop_duplicates(subset=["symbol", "date"])
-
-    valid_ohlc = (
-        (df["high"] >= df[["open", "close", "low"]].max(axis=1))
-        & (df["low"] <= df[["open", "close", "high"]].min(axis=1))
-        & (df["open"] > 0)
-        & (df["high"] > 0)
-        & (df["low"] > 0)
-        & (df["close"] > 0)
+    clean_df, _ = clean_price_dataframe(
+        df,
+        strict_sector=True,
+        source_default="psxdata",
+        log_prefix="final:",
     )
-
-    df = df[valid_ohlc].copy()
-
-    df["volume"] = df["volume"].fillna(0)
-    df = df[df["volume"] >= 0]
-
-    df["date"] = df["date"].dt.date
-    df = df.sort_values(["symbol", "date"])
-
-    return df
+    return clean_df
 
 
 def build_quality_report(df: pd.DataFrame):
-    report = (
-        df.groupby("symbol")
-        .agg(
-            rows=("date", "count"),
-            start_date=("date", "min"),
-            end_date=("date", "max"),
-            avg_volume=("volume", "mean"),
-            min_close=("close", "min"),
-            max_close=("close", "max"),
-        )
-        .reset_index()
-    )
-
-    report["avg_volume"] = report["avg_volume"].round(2)
-    report.to_csv(QUALITY_REPORT_FILE, index=False)
-
+    build_price_quality_report(df, QUALITY_REPORT_FILE)
     print(f"Saved quality report: {QUALITY_REPORT_FILE}")
 
 

@@ -9,6 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.app_config import CLEANED_DATA_FILE, SAMPLE_DATA_FILE
+from utils.price_data_utils import clean_price_dataframe
 
 
 RAW_FILE = SAMPLE_DATA_FILE
@@ -22,36 +23,12 @@ def clean_psx_data():
     CLEAN_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     df = pd.read_csv(RAW_FILE)
-
-    # Normalize column names
-    df.columns = [col.strip().lower().replace(" ", "_") for col in df.columns]
-
-    # Convert date
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-    # Remove rows with missing important fields
-    df = df.dropna(subset=["date", "symbol", "open", "high", "low", "close", "volume"])
-
-    # Convert numeric columns
-    numeric_cols = ["open", "high", "low", "close", "volume"]
-    for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    df = df.dropna(subset=numeric_cols)
-
-    # Sort by symbol and date
-    df = df.sort_values(by=["symbol", "date"])
-
-    # Remove duplicate symbol-date rows
-    df = df.drop_duplicates(subset=["symbol", "date"], keep="last")
-
-    # Keep anomaly column, but make sure it exists
-    if "is_anomaly" not in df.columns:
-        df["is_anomaly"] = False
-
-    # Add source metadata
-    df["source"] = "psxdata"
-    df["stream_type"] = "historical_replay"
+    df, _ = clean_price_dataframe(
+        df,
+        strict_sector=True,
+        source_default="psxdata",
+        log_prefix="legacy-clean:",
+    )
 
     # Save cleaned data
     df.to_csv(CLEAN_FILE, index=False)
@@ -67,8 +44,8 @@ def clean_psx_data():
         .reset_index()
     )
 
-    print("\nAnomaly count:")
-    print(df["is_anomaly"].value_counts())
+    print("\nSector count:")
+    print(df["sector"].value_counts())
 
 
 if __name__ == "__main__":

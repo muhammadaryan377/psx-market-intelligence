@@ -17,8 +17,8 @@ psxdata==0.1.0a3
 scikit-learn>=1.4,<2
 
 # Optional RAG/vector extras:
-# sentence-transformers>=3.3,<4
-# faiss-cpu>=1.9,<2
+sentence-transformers>=3.3,<4
+faiss-cpu>=1.9,<2
 # chromadb>=0.5,<1
 
 # Optional sentiment extras:
@@ -26,10 +26,10 @@ scikit-learn>=1.4,<2
 # textblob>=0.18,<1
 
 # Optional data/versioning and news collection extras:
-# dvc[gdrive]>=3.66,<4
-# requests>=2.31,<3
-# feedparser>=6.0,<7
-# beautifulsoup4>=4.12,<5
-# python-dateutil>=2.9,<3
-# newspaper3k>=0.2.8,<0.3
-# trafilatura>=2.0,<3
+dvc[gdrive]>=3.66,<4
+requests>=2.31,<3
+feedparser>=6.0,<7
+beautifulsoup4>=4.12,<5
+python-dateutil>=2.9,<3
+newspaper3k>=0.2.8,<0.3
+trafilatura>=2.0,<3

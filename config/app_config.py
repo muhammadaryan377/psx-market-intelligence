@@ -12,6 +12,8 @@ HISTORICAL_DIR = DATA_DIR / "historical"
 RAW_PRICE_DIR = DATA_DIR / "raw" / "prices_daily"
 METADATA_DIR = DATA_DIR / "metadata"
 PROCESSED_DIR = DATA_DIR / "processed"
+REPORTS_DIR = DATA_DIR / "reports"
+REPLAY_DIR = DATA_DIR / "replay"
 CHECKPOINT_DIR = DATA_DIR / "checkpoints"
 LOG_DIR = DATA_DIR / "logs"
 
@@ -42,6 +44,8 @@ def ensure_runtime_dirs() -> None:
         DATA_DIR,
         HISTORICAL_DIR,
         PROCESSED_DIR,
+        REPORTS_DIR,
+        REPLAY_DIR,
         CHECKPOINT_DIR,
         TREND_OUTPUT_DIR,
         VECTOR_INDEX_DIR,
