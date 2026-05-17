@@ -159,11 +159,11 @@ async function searchStock() {
         return;
     }
     
-    if (symbol.length < 2 || symbol.length > 5) {
+    if (symbol.length < 2 || symbol.length > 10) {
         document.getElementById('searchResult').innerHTML = `
             <div class="result-card">
                 <p style="color: var(--danger);">❌ Invalid symbol: "${symbol}"</p>
-                <p style="color: var(--text-muted);">Symbol should be 2-5 characters. Example: UBL, MCB, SYS</p>
+                <p style="color: var(--text-muted);">Symbol should be 2-10 characters. Example: UBL, MCB, SYS</p>
             </div>
         `;
         return;
@@ -272,11 +272,12 @@ async function getMLPrediction() {
         return;
     }
     
-    if (symbol.length < 2 || symbol.length > 5) {
+    if (symbol.length < 2 || symbol.length > 10) 
+         {
         document.getElementById('predictionResult').innerHTML = `
             <div class="prediction-card">
                 <p style="color: var(--danger);">❌ Invalid symbol: "${symbol}"</p>
-                <p style="color: var(--text-muted);">Symbol should be 2-5 characters. Example: UBL, MCB, SYS</p>
+                <p style="color: var(--text-muted);">Symbol should be 2-10 characters. Example: UBL, MCB, SYS</p>
             </div>
         `;
         return;

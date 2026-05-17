@@ -3,6 +3,7 @@ from typing import TypedDict, List, Dict, Any, Optional, Annotated
 import operator
 from datetime import datetime
 
+
 class MarketData(TypedDict):
     """Market data structure"""
     symbol: Optional[str]
@@ -25,6 +26,7 @@ class NewsItem(TypedDict):
 class AgentState(TypedDict):
     """Main state object that flows through the graph"""
     # Messages and query
+    news_signal: Optional[Dict[str, Any]]
     messages: Annotated[List[Dict[str, Any]], operator.add]
     query: str
     user_id: Optional[str]
@@ -49,3 +51,6 @@ class AgentState(TypedDict):
     next_agent: str
     errors: List[str]
     completed: bool
+    
+    # NEW: For deterministic runs (backtesting / consistent behavior)
+    simulation_date: Optional[datetime]   # ← ye line add karo

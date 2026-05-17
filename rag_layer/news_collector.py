@@ -1,5 +1,5 @@
 """
-News Collector - Collect news from RSS feeds
+News Collector - Collect news from RSS feeds and merge with existing CSV (append)
 """
 import feedparser
 import pandas as pd
@@ -48,7 +48,7 @@ class NewsCollector:
             except Exception as e:
                 print(f"Error fetching {feed['name']}: {e}")
         
-        # Remove duplicates by URL
+        # Remove duplicates by URL (within this batch)
         seen = set()
         unique_news = []
         for news in all_news:
@@ -59,19 +59,24 @@ class NewsCollector:
         return unique_news
     
     def save_to_csv(self, news_list: List[Dict]):
-        """Save news to CSV"""
+        """Save or merge news list to CSV (append new, avoid duplicates)"""
         if not news_list:
             print("No news to save")
             return
+
+        new_df = pd.DataFrame(news_list)
         
-        df = pd.DataFrame(news_list)
-        df.to_csv(self.news_file, index=False)
-        print(f"✓ Saved {len(df)} news articles to {self.news_file}")
-        
-        # Show sample
-        print(f"\n📰 Sample news:")
-        for i, row in df.head(3).iterrows():
-            print(f"   - {row['title'][:60]}...")
+        # If file already exists, merge with existing data (avoid duplicates)
+        if self.news_file.exists():
+            existing_df = pd.read_csv(self.news_file)
+            # Combine and drop duplicates based on 'url'
+            combined = pd.concat([existing_df, new_df], ignore_index=True)
+            combined.drop_duplicates(subset=['url'], keep='first', inplace=True)
+            combined.to_csv(self.news_file, index=False)
+            print(f"✓ Merged {len(new_df)} new articles (total {len(combined)})")
+        else:
+            new_df.to_csv(self.news_file, index=False)
+            print(f"✓ Saved {len(new_df)} news articles to {self.news_file}")
     
     def _extract_symbols(self, text: str) -> str:
         """Extract PSX symbols from text"""

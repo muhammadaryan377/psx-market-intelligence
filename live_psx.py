@@ -1,11 +1,50 @@
 """
 Live PSX Dashboard - All Companies OR Search Specific
 Auto-refresh every 10 seconds
+Now with Kafka integration: sends each tick to Kafka topic 'psx-raw-tick'
 """
 import psxdata as psx
 import time
 import os
+import json
 from datetime import datetime
+from kafka import KafkaProducer
+from kafka.errors import NoBrokersAvailable
+
+# ------------------ Kafka Producer Setup ------------------
+def create_producer():
+    """Create and return a Kafka producer instance."""
+    try:
+        producer = KafkaProducer(
+            bootstrap_servers='localhost:9092',
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            api_version_auto_timeout_ms=3000
+        )
+        print("✅ Kafka producer connected")
+        return producer
+    except Exception as e:
+        print(f"⚠️ Kafka producer error: {e}")
+        return None
+
+# Global producer (will be initialized when needed)
+_kafka_producer = None
+
+def get_kafka_producer():
+    global _kafka_producer
+    if _kafka_producer is None:
+        _kafka_producer = create_producer()
+    return _kafka_producer
+
+def send_to_kafka(data):
+    """Send a tick dictionary to Kafka topic 'psx-raw-tick'."""
+    producer = get_kafka_producer()
+    if producer:
+        try:
+            producer.send('psx-raw-tick', data)
+            # Do not flush every time; let the producer batch
+        except Exception as e:
+            print(f"Kafka send error: {e}")
+# ---------------------------------------------------------
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -22,7 +61,7 @@ def get_live_data(symbol):
     """Get live data for any symbol"""
     try:
         quote = psx.quote(symbol)
-        
+
         if quote is None:
             return None
         
@@ -45,11 +84,11 @@ def get_live_data(symbol):
             'change_pct': float(change_pct) if change_pct else None,
             'found': price is not None
         }
-    except:
+    except Exception:
         return None
 
 def show_all_companies(tickers):
-    """Show all companies live data"""
+    """Show all companies live data and send each tick to Kafka"""
     print("="*70)
     print(f"🚀 LIVE PSX MARKET - {datetime.now().strftime('%H:%M:%S')}")
     print("="*70)
@@ -58,14 +97,26 @@ def show_all_companies(tickers):
     
     gainers = 0
     losers = 0
+    displayed = 0
     
-    for symbol in tickers[:50]:  # Limit to 50 for performance
+    for symbol in tickers[:1000]:  # Limit to 1000 for performance
         data = get_live_data(symbol)
         
         if data and data.get('found'):
             price = data['price']
             change = data['change'] or 0
             change_pct = data['change_pct'] or 0
+            
+            # Send to Kafka (raw tick)
+            tick = {
+                'symbol': symbol,
+                'price': price,
+                'change': change,
+                'change_pct': change_pct,
+                'timestamp': datetime.now().isoformat(),
+                'source': 'live_psx_dashboard'
+            }
+            send_to_kafka(tick)
             
             if change_pct > 0:
                 status = "🟢 UP"
@@ -77,15 +128,16 @@ def show_all_companies(tickers):
                 status = "🟡 SAME"
             
             print(f"{symbol:<12} PKR {price:<12.2f} {change:<+12.2f} {change_pct:<+10.2f}% {status}")
+            displayed += 1
         else:
             print(f"{symbol:<12} {'N/A':<15} {'N/A':<12} {'N/A':<10} ⚪ N/A")
     
     print("-"*70)
-    print(f"📊 Summary: 🟢 {gainers} Gainers | 🔴 {losers} Losers | Total: {len(tickers[:50])}")
+    print(f"📊 Summary: 🟢 {gainers} Gainers | 🔴 {losers} Losers | Displayed: {displayed}")
     print(f"⏰ Updates every 10 seconds... (Press Ctrl+C to stop)")
 
 def show_single_company(symbol):
-    """Show single company with auto-refresh"""
+    """Show single company with auto-refresh and send to Kafka"""
     print(f"\n🔍 Tracking {symbol.upper()} - Auto-refresh every 10 seconds")
     print("Press Ctrl+C to stop\n")
     
@@ -104,6 +156,17 @@ def show_single_company(symbol):
                 price = data['price']
                 change = data['change'] or 0
                 change_pct = data['change_pct'] or 0
+                
+                # Send to Kafka
+                tick = {
+                    'symbol': symbol.upper(),
+                    'price': price,
+                    'change': change,
+                    'change_pct': change_pct,
+                    'timestamp': datetime.now().isoformat(),
+                    'source': 'live_psx_single'
+                }
+                send_to_kafka(tick)
                 
                 if change_pct > 0:
                     trend = "🟢 UP"
@@ -129,7 +192,7 @@ def show_single_company(symbol):
 def main():
     """Main menu"""
     print("\n" + "="*50)
-    print("🚀 LIVE PSX DASHBOARD")
+    print("🚀 LIVE PSX DASHBOARD (with Kafka producer)")
     print("="*50)
     print("\n1. 📊 Show ALL Companies (Live Data)")
     print("2. 🔍 Search Specific Company (Auto-refresh)")
