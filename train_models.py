@@ -6,7 +6,7 @@ import numpy as np
 from pathlib import Path
 from ml_models.price_predictor import PricePredictor
 
-DATA_FILE = Path("data/historical_prices.csv")
+DATA_FILE = Path("data/cleaned_historical_prices.csv")
 MODELS_DIR = Path("models")
 MODELS_DIR.mkdir(exist_ok=True)
 

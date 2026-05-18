@@ -1,14 +1,16 @@
-from flask import Flask, render_template, jsonify, request
-from flask_cors import CORS
 import sys
-from pathlib import Path
-import psxdata as psx
-import feedparser
-from datetime import datetime
-import time
-import json
 import os
 import random
+import time
+import json
+from datetime import datetime
+from pathlib import Path
+import pandas as pd
+import feedparser
+from flask import Flask, render_template, jsonify, request
+from flask_cors import CORS
+import psxdata as psx
+import csv   # add this line with other imports
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -33,11 +35,10 @@ analysis_agent = AnalysisAgent()
 decision_agent = DecisionAgent()
 rag = get_rag()
 
-kafka_latest_data = {}
-
 # Store for historical data
-HISTORICAL_DATA_FILE = Path("data/historical_prices.json")
+HISTORICAL_DATA_FILE = Path("data/historical_prices_clean.csv")
 HISTORICAL_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+
 # ========== KAFKA SECTION ==========
 # Global variable for Kafka data
 kafka_latest_data = {}
@@ -46,7 +47,6 @@ def init_kafka_consumer():
     """Initialize Kafka consumer in background"""
     import threading
     from kafka import KafkaConsumer
-    import json
     
     def consume():
         global kafka_latest_data
@@ -73,117 +73,204 @@ def init_kafka_consumer():
 # Call this when Kafka is available
 # init_kafka_consumer()
 
-def load_historical_data():
-    """Load stored historical data"""
-    if HISTORICAL_DATA_FILE.exists():
-        with open(HISTORICAL_DATA_FILE, 'r') as f:
-            return json.load(f)
-    return {}
+def save_historical_data(data):
+    """Save historical data to CSV file"""
+    rows = []
+    for symbol, entries in data.items():
+        for entry in entries:
+            rows.append({
+                'symbol': symbol,
+                'price': entry['price'],
+                'timestamp': entry['timestamp']
+            })
+    
+    with open(HISTORICAL_DATA_FILE, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=['symbol', 'price', 'timestamp'])
+        writer.writeheader()
+        writer.writerows(rows)
+
 
 def save_historical_data(data):
-    """Save historical data"""
-    with open(HISTORICAL_DATA_FILE, 'w') as f:
-        json.dump(data, f, indent=2)
+    rows = []
+    for symbol, entries in data.items():
+        for entry in entries:
+            rows.append({
+                'symbol': symbol,
+                'price': entry['price'],
+                'timestamp': entry['timestamp']
+            })
+    with open(HISTORICAL_DATA_FILE, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=['symbol', 'price', 'timestamp'])
+        writer.writeheader()
+        writer.writerows(rows)
 
+
+def update_model_incrementally(symbol, new_price):
+    """Update per‑symbol price predictor incrementally (partial_fit)"""
+    from ml_models.price_predictor import PricePredictor
+    import numpy as np
+    
+    predictor = PricePredictor(symbol=symbol)
+    
+    # If model doesn't exist yet, train on all historical data
+    if not predictor.model_file.exists():
+        if symbol in historical_cache and len(historical_cache[symbol]) >= 5:
+            all_prices = [p['price'] for p in historical_cache[symbol]]
+            predictor.train(all_prices)
+        return
+    
+    # Model exists – do incremental update with new price point
+    # Use the current length as the next index
+    current_len = len(historical_cache.get(symbol, []))
+    if current_len == 0:
+        return
+    X_new = np.array([[current_len - 1]]).astype(np.float64)
+    y_new = np.array([new_price]).astype(np.float64)
+    
+    # partial_fit expects scaler already fitted
+    if hasattr(predictor.scaler, 'scale_'):
+        predictor.partial_fit(X_new, y_new)
+
+# ---------- Historical data load/save functions ----------
+def load_historical_data():
+    """Load historical data from CSV file into dict format"""
+    data = {}
+    if HISTORICAL_DATA_FILE.exists():
+        with open(HISTORICAL_DATA_FILE, 'r', newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                symbol = row['symbol']
+                entry = {'price': float(row['price']), 'timestamp': row['timestamp']}
+                if symbol not in data:
+                    data[symbol] = []
+                data[symbol].append(entry)
+    return data
+
+def save_historical_data(data):
+    """Save historical data to CSV file"""
+    rows = []
+    for symbol, entries in data.items():
+        for entry in entries:
+            rows.append({
+                'symbol': symbol,
+                'price': entry['price'],
+                'timestamp': entry['timestamp']
+            })
+    with open(HISTORICAL_DATA_FILE, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=['symbol', 'price', 'timestamp'])
+        writer.writeheader()
+        writer.writerows(rows)
+
+# ---------- Initialize historical cache ----------
 historical_cache = load_historical_data()
 
 def get_historical_prices(symbol):
-    """Generate historical prices for ML prediction"""
+    """Return historical prices for ML prediction.
+    Only generates mock data if absolutely no data exists (cache + CSV empty).
+    Mock data is deterministic (same for same symbol each time).
+    """
     symbol = symbol.upper()
     
-    # Try to get from cache first
+    # 1. Try cache first
     if symbol in historical_cache and historical_cache[symbol]:
         prices = [item['price'] for item in historical_cache[symbol][-30:]]
-        if len(prices) >= 10:
+        if len(prices) >= 5:          # allow at least 5 points for training
             return prices
     
-    # Generate based on current price
-    live_data, _ = get_live_or_stored_price(symbol)
-    base_price = live_data['price'] if live_data else 100
+    # 2. Fallback: read from the clean CSV file
+    csv_path = Path("data/historical_prices_clean.csv")
+    if csv_path.exists():
+        try:
+            df = pd.read_csv(csv_path)
+            # Ensure timestamp column exists and sort
+            if 'timestamp' in df.columns:
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df = df.sort_values('timestamp')
+            # Filter for this symbol
+            symbol_df = df[df['symbol'] == symbol]
+            if not symbol_df.empty and 'price' in symbol_df.columns:
+                prices = symbol_df['price'].tail(30).tolist()
+                if len(prices) >= 5:
+                    return prices
+        except Exception as e:
+            print(f"Error reading historical CSV: {e}")
     
+    # 3. Absolutely no data – generate deterministic mock (same every time)
+    # Use symbol hash as seed so same symbol → same mock sequence
+    import random
+    random.seed(hash(symbol) % 10000)
+    base_price = 100 + (hash(symbol) % 400)   # fixed base per symbol
     prices = []
     price = base_price
-    for i in range(30):
-        change_pct = random.uniform(-0.03, 0.03)
+    for _ in range(30):
+        change_pct = random.uniform(-0.02, 0.02)
         price = price * (1 + change_pct)
-        prices.append(max(price * 0.5, min(price * 1.5, price)))
-    
+        prices.append(round(price, 2))
     return prices
 
 def get_live_or_stored_price(symbol):
-    """Get live price if market open, else get stored data"""
     symbol = symbol.upper()
     status = market_status.get_status()
     
-    # Try to get live data
-    try:
-        quote = psx.quote(symbol)
-        if quote is not None:
-            if hasattr(quote, 'iloc') and len(quote) > 0:
-                quote = quote.iloc[0]
-            
-            price = quote.get('current_price') or quote.get('price')
-            change = quote.get('change') or quote.get('net_change')
-            change_pct = quote.get('change_percent') or quote.get('p_change')
-            
-            if price:
-                data = {
-                    'price': float(price),
-                    'change': float(change) if change else 0,
-                    'change_pct': float(change_pct) if change_pct else 0,
-                    'source': 'live',
-                    'timestamp': datetime.now().isoformat()
-                }
-                # Store for future
-                if symbol not in historical_cache:
-                    historical_cache[symbol] = []
-                historical_cache[symbol].append({
-                    'price': data['price'],
-                    'timestamp': data['timestamp']
-                })
-                historical_cache[symbol] = historical_cache[symbol][-100:]
-                save_historical_data(historical_cache)
-                return data, status
-    except:
-        pass
+    # 1. Market open? Try live data
+    if status['status'] == 'open':
+        try:
+            quote = psx.quote(symbol)
+            if quote is not None:
+                if hasattr(quote, 'iloc') and len(quote) > 0:
+                    quote = quote.iloc[0]
+                price = quote.get('current_price') or quote.get('price')
+                if price:
+                    data = {
+                        'price': float(price),
+                        'change': float(quote.get('change', 0)),
+                        'change_pct': float(quote.get('change_percent', 0)),
+                        'source': 'live',
+                        'timestamp': datetime.now().isoformat()
+                    }
+                    # Avoid duplicate if same price
+                    last = historical_cache.get(symbol, [])
+                    if not last or last[-1]['price'] != data['price']:
+                        historical_cache.setdefault(symbol, []).append({
+                            'price': data['price'],
+                            'timestamp': data['timestamp']
+                        })
+                        historical_cache[symbol] = historical_cache[symbol][-100:]
+                        save_historical_data(historical_cache)
+                        # Incremental ML update (define later)
+                        update_model_incrementally(symbol, data['price'])
+                    return data, status
+        except Exception as e:
+            print(f"Live error: {e}")
     
-    # Return stored data if available
+    # 2. Market closed or live failed → only stored data
     if symbol in historical_cache and historical_cache[symbol]:
-        last_entry = historical_cache[symbol][-1]
+        last = historical_cache[symbol][-1]
         return {
-            'price': float(last_entry['price']),
+            'price': float(last['price']),
             'change': 0,
             'change_pct': 0,
             'source': 'stored',
-            'timestamp': last_entry['timestamp'],
-            'message': status['message']
+            'timestamp': last['timestamp'],
+            'message': "Market closed – last stored price"
         }, status
     
-    # Fallback mock data
-    seed = hash(symbol) % 1000
-    random.seed(seed)
-    mock_price = float(round(100 + random.uniform(0, 400), 2))
+    # 3. No data at all → error (no mock!)
     return {
-        'price': mock_price,
-        'change': 0,
-        'change_pct': 0,
-        'source': 'fallback',
-        'timestamp': datetime.now().isoformat(),
-        'message': status['message']
+        'error': f'No historical data for {symbol}',
+        'source': 'none'
     }, status
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# Add this route for Kafka version
 @app.route('/kafka')
 def index_kafka():
     return render_template('index-kafka.html')
 
 @app.route('/api/market_status')
 def get_market_status():
-    """Get current market status"""
     return jsonify(market_status.get_status())
 
 @app.route('/api/stock/<symbol>')
@@ -246,14 +333,12 @@ def get_stock(symbol):
     else:
         price_trend = 'sideways'
     
-    # Get ML Trend Prediction with proper confidence
     ml_trend = "neutral"
     ml_trend_conf = 50
     try:
         historical_prices = get_historical_prices(symbol)
         ml_trend, base_conf = trend_predictor.predict_trend(historical_prices)
         
-        # Calculate confidence based on actual price movement
         if ml_trend == 'up':
             if change > 2:
                 ml_trend_conf = 85
@@ -273,7 +358,6 @@ def get_stock(symbol):
             else:
                 ml_trend_conf = 55
         else:
-            # Neutral trend
             if abs(change) < 0.5:
                 ml_trend_conf = 50
             elif change > 0:
@@ -283,7 +367,6 @@ def get_stock(symbol):
                 ml_trend_conf = 55
                 ml_trend = 'down'
         
-        # Blend with model confidence
         ml_trend_conf = int((ml_trend_conf + base_conf) / 2)
         ml_trend_conf = max(50, min(85, ml_trend_conf))
         
@@ -315,10 +398,8 @@ def get_stock(symbol):
         }
     })
 
-
 @app.route('/api/all_stocks')
 def all_stocks():
-    """Get all stocks with data"""
     tickers = stock_service.get_all_tickers()
     stocks = []
     for symbol in tickers[:50]:
@@ -406,95 +487,115 @@ def suggest(prefix):
 
 @app.route('/api/ml_predict/<symbol>')
 def ml_predict(symbol):
-    """Get ML prediction for a specific symbol"""
     symbol = symbol.upper().strip()
-    
-    # ===== VALIDATION 1: Check if symbol contains only letters =====
+
+    # ----- Validation -----
     if not symbol.isalpha():
-        return jsonify({'error': f'❌ Invalid symbol: "{symbol}". Symbol must contain only letters (A-Z). Example: UBL, MCB, SYS'})
-    
-    # ===== VALIDATION 2: Check symbol length =====
-    if len(symbol) < 2 or len(symbol) > 5:
-        return jsonify({'error': f'❌ Invalid symbol: "{symbol}". Symbol length should be 2-5 characters. Example: UBL, MCB, SYS'})
-    
-    # ===== VALIDATION 3: Check if symbol exists in PSX =====
+        return jsonify({'error': f'❌ Invalid symbol: "{symbol}". Use only letters A-Z.'})
+
+    if len(symbol) < 2 or len(symbol) > 10:
+        return jsonify({'error': f'❌ Invalid symbol: "{symbol}". Length 2-10 characters.'})
+
     valid_symbols = stock_service.get_all_tickers()
     if symbol not in valid_symbols:
         similar = [s for s in valid_symbols if symbol in s][:5]
         if similar:
             return jsonify({'error': f'❌ Symbol "{symbol}" not found. Did you mean: {", ".join(similar)}?'})
         else:
-            return jsonify({'error': f'❌ Symbol "{symbol}" not found on PSX. Try: UBL, MCB, SYS, ENGRO, LUCK'})
-    
+            return jsonify({'error': f'❌ Symbol "{symbol}" not found on PSX.'})
+
+    # ----- Current price -----
     live_data, status = get_live_or_stored_price(symbol)
-    
-    if not live_data or live_data.get('price') == 'N/A':
-        return jsonify({'error': f'❌ Price data not available for {symbol}. Market may be closed.'})
-    
+    if not live_data or live_data.get('price') == 'N/A' or 'error' in live_data:
+        return jsonify({'error': f'❌ Price data not available for {symbol}.'})
+
     current_price = float(live_data['price'])
-    
+
+    # ----- Historical prices (only from cache, no random generation) -----
+    historical_prices = get_historical_prices(symbol)   # returns [] if not enough
+    if not historical_prices or len(historical_prices) < 5:
+        # Not enough historical data → use deterministic mock prediction
+        import random
+        random.seed(hash(symbol) % 10000)
+        mock_change = random.uniform(-5, 5)
+        predicted_price = current_price * (1 + mock_change / 100)
+        expected_return = mock_change
+        action = "BUY" if expected_return > 1 else "SELL" if expected_return < -1 else "HOLD"
+        confidence = int(min(70, 50 + abs(expected_return) * 3))
+        ml_trend = "neutral"
+        ml_trend_conf = 50
+        return jsonify({
+            'symbol': symbol,
+            'current_price': round(current_price, 2),
+            'predicted_price': round(predicted_price, 2),
+            'expected_return': round(expected_return, 1),
+            'action': action,
+            'confidence': confidence,
+            'ml_trend': ml_trend,
+            'ml_trend_confidence': ml_trend_conf,
+            'note': 'Mock prediction (insufficient historical data)'
+        })
+
+    recent_prices = [float(p) for p in historical_prices[-20:]]
+
+    # ----- ML prediction using per‑symbol model (no retraining on each call) -----
     try:
-        from ml_models.price_predictor import price_predictor
+        from ml_models.price_predictor import PricePredictor
         from ml_models.trend_predictor import trend_predictor
-        
-        # Get historical prices
-        historical_prices = get_historical_prices(symbol)
-        
-        if len(historical_prices) < 10:
-            # Generate if not enough
-            historical_prices = []
-            price = current_price
-            for i in range(30):
-                change_pct = random.uniform(-0.03, 0.03)
-                price = price * (1 + change_pct)
-                historical_prices.append(float(price))
-        
-        recent_prices = [float(p) for p in historical_prices[-20:]]
-        
-        # Train model
-        price_predictor.train(recent_prices)
-        
-        # Predict next price
-        next_price = price_predictor.predict_next_price(recent_prices)
-        
-        if next_price and next_price > 0:
-            next_price = float(next_price)
-            expected_return = float(((next_price - current_price) / current_price) * 100)
-            
-            if expected_return > 1:
-                action = "BUY"
-            elif expected_return < -1:
-                action = "SELL"
+
+        # Use a model dedicated to this symbol
+        predictor = PricePredictor(symbol=symbol)
+
+        # Train only once: if the model file does not exist, train on all available history
+        if not predictor.model_file.exists():
+            all_prices = [p['price'] for p in historical_cache.get(symbol, [])]
+            if len(all_prices) >= 5:
+                predictor.train(all_prices)
+                print(f"✅ Trained new model for {symbol} on {len(all_prices)} points")
             else:
-                action = "HOLD"
-            
-            confidence = int(min(85, 50 + abs(expected_return) * 5))
-            
-            # Get trend prediction
-            ml_trend, ml_trend_conf = trend_predictor.predict_trend(historical_prices)
-            
-            return jsonify({
-                'symbol': str(symbol),
-                'current_price': round(current_price, 2),
-                'predicted_price': round(next_price, 2),
-                'expected_return': round(expected_return, 1),
-                'action': str(action),
-                'confidence': confidence,
-                'ml_trend': ml_trend,
-                'ml_trend_confidence': round(ml_trend_conf)
-            })
+                # Still not enough? Should not happen because we already checked historical_prices
+                return jsonify({'error': 'Still not enough data to train model.'})
+
+        # Predict next price
+        next_price = predictor.predict_next_price(recent_prices)
+        if next_price is None or next_price <= 0:
+            return jsonify({'error': 'Prediction failed – model not ready.'})
+
+        next_price = float(next_price)
+        expected_return = ((next_price - current_price) / current_price) * 100
+
+        if expected_return > 1:
+            action = "BUY"
+        elif expected_return < -1:
+            action = "SELL"
         else:
-            return jsonify({'error': 'Could not generate prediction'})
-            
+            action = "HOLD"
+
+        confidence = int(min(85, 50 + abs(expected_return) * 5))
+
+        # Trend prediction (optional, uses same historical_prices)
+        ml_trend, ml_trend_conf = trend_predictor.predict_trend(historical_prices)
+        ml_trend_conf = int(ml_trend_conf)
+
+        return jsonify({
+            'symbol': symbol,
+            'current_price': round(current_price, 2),
+            'predicted_price': round(next_price, 2),
+            'expected_return': round(expected_return, 1),
+            'action': action,
+            'confidence': confidence,
+            'ml_trend': ml_trend,
+            'ml_trend_confidence': ml_trend_conf
+        })
+
     except Exception as e:
         print(f"ML Prediction error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': f'Prediction error: {str(e)}'})
-    
+        
 @app.route('/api/kafka/stock/<symbol>')
 def get_kafka_stock(symbol):
-    """Get stock data from Kafka stream"""
     symbol = symbol.upper()
     data = kafka_latest_data.get(symbol)
     

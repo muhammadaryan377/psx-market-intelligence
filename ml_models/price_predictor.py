@@ -1,5 +1,5 @@
 """
-Price Predictor – Unified version (supports both incremental & batch training)
+Price Predictor – Unified version (supports both batch & incremental training)
 """
 import numpy as np
 from sklearn.linear_model import SGDRegressor
@@ -28,8 +28,9 @@ class PricePredictor:
             self.model = SGDRegressor(loss='squared_error', penalty='l2',
                                       alpha=0.0001, max_iter=1000, random_state=42)
 
-    # ----- Batch training (used by frontend) -----
+    # ----- Batch training (full training from history) -----
     def train(self, prices):
+        """Train model on a list of historical prices (batch)."""
         if len(prices) < 5:
             return False
         X = np.arange(len(prices)).reshape(-1, 1).astype(np.float64)
@@ -39,20 +40,28 @@ class PricePredictor:
         self._save()
         return True
 
-    # ----- Incremental update (used by Kafka cleaner) -----
+    # ----- Incremental update (one new point) -----
     def partial_fit(self, X, y):
+        """
+        Incrementally update model with a single new data point.
+        IMPORTANT: scaler must already be fitted (call train() at least once before).
+        """
         if not hasattr(self.scaler, 'scale_'):
-            X_scaled = self.scaler.fit_transform(X)
-        else:
-            X_scaled = self.scaler.transform(X)
+            # Scaler not fitted – cannot do partial_fit safely
+            raise RuntimeError("Scaler not fitted. Call train() first with at least 5 points.")
+        X_scaled = self.scaler.transform(X)
         self.model.partial_fit(X_scaled, y)
         self._save()
 
     # ----- Prediction -----
     def predict_next_price(self, last_prices):
+        """Predict next price based on last N prices."""
         if len(last_prices) < 5 or self.model is None:
             return None
         X = np.arange(len(last_prices)).reshape(-1, 1)
+        # If scaler not fitted, we cannot transform
+        if not hasattr(self.scaler, 'scale_'):
+            return None
         X_scaled = self.scaler.transform(X)
         next_idx = len(last_prices)
         X_next = np.array([[next_idx]]).astype(np.float64)
@@ -65,4 +74,5 @@ class PricePredictor:
         joblib.dump(self.scaler, self.scaler_file)
 
 # ----- Global instance for frontend (default model, not per‑symbol) -----
+# You may still use this, but we recommend per‑symbol models via PricePredictor(symbol=...)
 price_predictor = PricePredictor()
