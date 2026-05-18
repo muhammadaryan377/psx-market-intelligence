@@ -404,11 +404,13 @@ def all_stocks():
     stocks = []
     for symbol in tickers[:50]:
         data, _ = get_live_or_stored_price(symbol)
-        stocks.append({
-            'symbol': symbol,
-            'price': round(float(data['price']), 2),
-            'change': round(float(data['change_pct']), 2)
-        })
+        # Only add if data contains price and change_pct (i.e., not an error)
+        if 'price' in data and 'change_pct' in data:
+            stocks.append({
+                'symbol': symbol,
+                'price': round(float(data['price']), 2),
+                'change': round(float(data['change_pct']), 2)
+            })
     return jsonify(stocks)
 
 @app.route('/api/gainers')
@@ -417,7 +419,7 @@ def gainers():
     gainers_list = []
     for symbol in tickers[:100]:
         data, _ = get_live_or_stored_price(symbol)
-        if data['change_pct'] > 0:
+        if 'change_pct' in data and data['change_pct'] > 0:
             gainers_list.append({
                 'symbol': symbol,
                 'price': round(float(data['price']), 2),
@@ -426,13 +428,14 @@ def gainers():
     gainers_list.sort(key=lambda x: x['change'], reverse=True)
     return jsonify(gainers_list[:15])
 
+
 @app.route('/api/losers')
 def losers():
     tickers = stock_service.get_all_tickers()
     losers_list = []
     for symbol in tickers[:100]:
         data, _ = get_live_or_stored_price(symbol)
-        if data['change_pct'] < 0:
+        if 'change_pct' in data and data['change_pct'] < 0:
             losers_list.append({
                 'symbol': symbol,
                 'price': round(float(data['price']), 2),
@@ -440,6 +443,7 @@ def losers():
             })
     losers_list.sort(key=lambda x: x['change'])
     return jsonify(losers_list[:15])
+
 
 @app.route('/api/news')
 def news():
